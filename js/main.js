@@ -37,27 +37,36 @@
       tab.addEventListener('click', () => switchAuthTab(tab.dataset.authTab));
     });
 
-    loginForm.addEventListener('submit', (e) => {
+    loginForm.addEventListener('submit', async (e) => {
       e.preventDefault();
       const fd = new FormData(loginForm);
       const email = String(fd.get('email') || '').trim().toLowerCase();
       const password = String(fd.get('password') || '');
-      const users = JSON.parse(localStorage.getItem('mvpUsers') || '[]');
-      if (users.length) {
-        const matchedUser = users.find((u) => u.email === email && u.password === password);
-        if (!matchedUser) {
-          if (authMessage) authMessage.textContent = 'メールアドレスまたはパスワードが正しくありません。';
+
+      try {
+        const res = await fetch('/api/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ email, password }),
+        });
+        const result = await res.json();
+
+        if (!res.ok) {
+          if (authMessage) authMessage.textContent = result.message || 'ログインに失敗しました。';
           return;
         }
-      }
 
-      localStorage.setItem('mvpLoggedIn', '1');
-      if (authMessage) authMessage.textContent = 'ログインに成功しました。';
-      window.location.href = 'index.html';
+        if (authMessage) authMessage.textContent = result.message || 'ログインに成功しました。';
+        window.location.href = 'index.html';
+      } catch (error) {
+        console.error(error);
+        if (authMessage) authMessage.textContent = 'サーバー通信に失敗しました。';
+      }
     });
 
     if (registerForm) {
-      registerForm.addEventListener('submit', (e) => {
+      registerForm.addEventListener('submit', async (e) => {
         e.preventDefault();
         const fd = new FormData(registerForm);
         const name = String(fd.get('name') || '').trim();
@@ -70,18 +79,27 @@
           return;
         }
 
-        const users = JSON.parse(localStorage.getItem('mvpUsers') || '[]');
-        const exists = users.some((u) => u.email === email);
-        if (exists) {
-          if (authMessage) authMessage.textContent = 'このメールアドレスは既に登録済みです。';
-          return;
-        }
+        try {
+          const res = await fetch('/api/register', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ name, email, password }),
+          });
+          const result = await res.json();
 
-        users.push({ name, email, password, createdAt: new Date().toISOString() });
-        localStorage.setItem('mvpUsers', JSON.stringify(users));
-        registerForm.reset();
-        if (authMessage) authMessage.textContent = '新規登録が完了しました。ログインしてください。';
-        switchAuthTab('login');
+          if (!res.ok) {
+            if (authMessage) authMessage.textContent = result.message || '新規登録に失敗しました。';
+            return;
+          }
+
+          registerForm.reset();
+          if (authMessage) authMessage.textContent = result.message || '新規登録が完了しました。ログインしてください。';
+          switchAuthTab('login');
+        } catch (error) {
+          console.error(error);
+          if (authMessage) authMessage.textContent = 'サーバー通信に失敗しました。';
+        }
       });
     }
   }
@@ -271,8 +289,12 @@
     qs('profileName').textContent = data.currentUser.name;
     qs('profileRole').textContent = data.currentUser.role;
     qs('profileTeam').textContent = data.currentUser.team;
-    qs('logoutBtn').addEventListener('click', () => {
-      localStorage.removeItem('mvpLoggedIn');
+    qs('logoutBtn').addEventListener('click', async () => {
+      try {
+        await fetch('/api/logout', { method: 'POST', credentials: 'include' });
+      } catch (error) {
+        console.error(error);
+      }
       window.location.href = 'login.html';
     });
   }
