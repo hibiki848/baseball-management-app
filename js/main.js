@@ -110,6 +110,12 @@
         const email = String(fd.get('email') || '').trim().toLowerCase();
         const password = String(fd.get('password') || '');
         const passwordConfirm = String(fd.get('passwordConfirm') || '');
+        const role = String(fd.get('role') || '').trim();
+
+        if (!role) {
+          if (authMessage) authMessage.textContent = 'ロールを選択してください。';
+          return;
+        }
 
         if (password !== passwordConfirm) {
           if (authMessage) authMessage.textContent = '確認用パスワードが一致しません。';
@@ -121,7 +127,7 @@
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             credentials: 'include',
-            body: JSON.stringify({ name, email, password }),
+            body: JSON.stringify({ name, email, password, role }),
           });
           const result = await res.json();
 
