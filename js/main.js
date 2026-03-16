@@ -17,7 +17,6 @@
     coach: 'coach.html',
     manager: 'manager.html',
     player: 'player.html',
-    admin: 'manager.html',
   };
 
   function getRoleHome(role) {

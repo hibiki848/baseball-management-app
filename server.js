@@ -91,7 +91,7 @@ function normalizeEmail(email) {
   return String(email || '').trim().toLowerCase();
 }
 
-const ALLOWED_ROLES = new Set(['player', 'coach', 'manager', 'admin']);
+const ALLOWED_ROLES = new Set(['player', 'coach', 'manager']);
 
 function requireLogin(req, res, next) {
   if (!req.session.user) {
