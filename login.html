@@ -20,6 +20,14 @@
       <form id="loginForm" data-auth-panel="login">
         <div class="form-row"><label for="loginEmail">メールアドレス</label><input id="loginEmail" name="email" type="email" required placeholder="coach@example.com" /></div>
         <div class="form-row"><label for="loginPassword">パスワード</label><input id="loginPassword" name="password" type="password" required placeholder="••••••••" /></div>
+
+        <fieldset class="form-row role-select-group">
+          <legend>ログインロール</legend>
+          <label class="role-option"><input type="radio" name="role" value="coach" required />指導者</label>
+          <label class="role-option"><input type="radio" name="role" value="manager" />マネージャー</label>
+          <label class="role-option"><input type="radio" name="role" value="player" />選手</label>
+        </fieldset>
+
         <button class="button-primary" type="submit">ログイン</button>
       </form>
 
