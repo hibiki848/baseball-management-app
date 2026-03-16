@@ -14,13 +14,23 @@
   function emptyMessage(message) { return `<div class="small">${message}</div>`; }
 
   const rolePageMap = {
-    coach: 'coach.html',
+    admin: 'coach.html',
     manager: 'manager.html',
     player: 'player.html',
   };
 
   function getRoleHome(role) {
     return rolePageMap[role] || 'index.html';
+  }
+
+  const roleLabelMap = {
+    admin: '監督',
+    manager: 'マネージャー',
+    player: '選手',
+  };
+
+  function getRoleLabel(role) {
+    return roleLabelMap[role] || role || '-';
   }
 
 
@@ -408,7 +418,7 @@
     }
 
     qs('profileName').textContent = user && user.name ? user.name : '未ログイン';
-    qs('profileRole').textContent = user && user.role ? user.role : '-';
+    qs('profileRole').textContent = getRoleLabel(user && user.role);
     qs('profileTeam').textContent = '-';
 
     bindAccountDelete();

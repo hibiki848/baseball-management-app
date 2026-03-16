@@ -18,12 +18,12 @@
       </div>
 
       <form id="loginForm" data-auth-panel="login">
-        <div class="form-row"><label for="loginEmail">メールアドレス</label><input id="loginEmail" name="email" type="email" required placeholder="coach@example.com" /></div>
+        <div class="form-row"><label for="loginEmail">メールアドレス</label><input id="loginEmail" name="email" type="email" required placeholder="admin@example.com" /></div>
         <div class="form-row"><label for="loginPassword">パスワード</label><input id="loginPassword" name="password" type="password" required placeholder="••••••••" /></div>
 
         <fieldset class="form-row role-select-group">
           <legend>ログインロール</legend>
-          <label class="role-option"><input type="radio" name="role" value="coach" required />監督</label>
+          <label class="role-option"><input type="radio" name="role" value="admin" required />監督</label>
           <label class="role-option"><input type="radio" name="role" value="manager" />マネージャー</label>
           <label class="role-option"><input type="radio" name="role" value="player" />選手</label>
         </fieldset>
@@ -33,13 +33,13 @@
 
       <form id="registerForm" data-auth-panel="register" hidden>
         <div class="form-row"><label for="registerName">表示名</label><input id="registerName" name="name" type="text" required placeholder="山田 太郎" /></div>
-        <div class="form-row"><label for="registerEmail">メールアドレス</label><input id="registerEmail" name="email" type="email" required placeholder="coach@example.com" /></div>
+        <div class="form-row"><label for="registerEmail">メールアドレス</label><input id="registerEmail" name="email" type="email" required placeholder="admin@example.com" /></div>
         <div class="form-row">
           <label for="registerRole">ロール</label>
           <select id="registerRole" name="role" required>
             <option value="" selected>選択してください</option>
             <option value="player">選手</option>
-            <option value="coach">監督</option>
+            <option value="admin">監督</option>
             <option value="manager">マネージャー</option>
           </select>
         </div>

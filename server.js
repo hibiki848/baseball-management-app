@@ -91,7 +91,12 @@ function normalizeEmail(email) {
   return String(email || '').trim().toLowerCase();
 }
 
-const ALLOWED_ROLES = new Set(['player', 'coach', 'manager']);
+const ALLOWED_ROLES = new Set(['admin', 'manager', 'player']);
+const ROLE_LABELS = {
+  admin: '監督',
+  manager: 'マネージャー',
+  player: '選手',
+};
 
 function requireLogin(req, res, next) {
   if (!req.session.user) {
@@ -121,7 +126,9 @@ app.post('/api/register', async (req, res) => {
   }
 
   if (!ALLOWED_ROLES.has(role)) {
-    return res.status(400).json({ message: '指定されたロールが不正です。' });
+    return res.status(400).json({
+      message: '指定されたロールが不正です。admin / manager / player のいずれかを指定してください。',
+    });
   }
 
   try {
@@ -151,7 +158,20 @@ app.post('/api/register', async (req, res) => {
     });
   } catch (error) {
     console.error('[register] error', error);
-    return res.status(500).json({ message: 'ユーザー登録に失敗しました。' });
+
+    if (error && (error.code === 'WARN_DATA_TRUNCATED' || error.errno === 1265)) {
+      return res.status(400).json({
+        message: 'role の保存に失敗しました。admin / manager / player のいずれかを指定してください。',
+      });
+    }
+
+    if (error && error.code === 'ER_DUP_ENTRY') {
+      return res.status(409).json({ message: 'このメールアドレスは既に登録されています。' });
+    }
+
+    return res.status(500).json({
+      message: `ユーザー登録に失敗しました: ${error && error.message ? error.message : '原因不明のエラー'}`,
+    });
   }
 });
 
@@ -165,7 +185,9 @@ app.post('/api/login', async (req, res) => {
   }
 
   if (selectedRole && !ALLOWED_ROLES.has(selectedRole)) {
-    return res.status(400).json({ message: '指定されたロールが不正です。' });
+    return res.status(400).json({
+      message: '指定されたロールが不正です。admin / manager / player のいずれかを指定してください。',
+    });
   }
 
   try {
@@ -188,8 +210,9 @@ app.post('/api/login', async (req, res) => {
     const accountRole = ALLOWED_ROLES.has(user.role) ? user.role : 'player';
 
     if (selectedRole && selectedRole !== accountRole) {
+      const accountRoleLabel = ROLE_LABELS[accountRole] || accountRole;
       return res.status(403).json({
-        message: `このアカウントは「${accountRole}」権限です。正しいロールを選択してください。`,
+        message: `このアカウントは「${accountRoleLabel}」権限です。正しいロールを選択してください。`,
       });
     }
 
