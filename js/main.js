@@ -94,8 +94,8 @@
           }
 
           registerForm.reset();
-          if (authMessage) authMessage.textContent = result.message || '新規登録が完了しました。ログインしてください。';
-          switchAuthTab('login');
+          if (authMessage) authMessage.textContent = result.message || '新規登録が完了しました。';
+          window.location.href = 'index.html';
         } catch (error) {
           console.error(error);
           if (authMessage) authMessage.textContent = 'サーバー通信に失敗しました。';

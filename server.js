@@ -9,40 +9,45 @@ const port = Number(process.env.PORT) || 3000;
 const host = '0.0.0.0';
 const rootDir = __dirname;
 
+function getEnv(primaryKey, secondaryKey) {
+  return process.env[primaryKey] || process.env[secondaryKey];
+}
+
+const dbConfig = {
+  host: getEnv('DB_HOST', 'MYSQLHOST'),
+  port: Number(getEnv('DB_PORT', 'MYSQLPORT')),
+  user: getEnv('DB_USER', 'MYSQLUSER'),
+  password: getEnv('DB_PASSWORD', 'MYSQLPASSWORD'),
+  database: getEnv('DB_NAME', 'MYSQLDATABASE'),
+};
+
+const missingDbEnv = Object.entries(dbConfig)
+  .filter(([, value]) => !value || Number.isNaN(value))
+  .map(([key]) => key.toUpperCase());
+
+if (missingDbEnv.length > 0) {
+  throw new Error(
+    `Missing required database environment variables: ${missingDbEnv.join(', ')}. ` +
+      'Set DB_* or MYSQL* variables in Railway.',
+  );
+}
+
+if (!process.env.SESSION_SECRET) {
+  throw new Error('Missing required environment variable: SESSION_SECRET');
+}
+
 const dbPool = mysql.createPool({
-  host: process.env.DB_HOST || '127.0.0.1',
-  port: Number(process.env.DB_PORT) || 3306,
-  user: process.env.DB_USER || 'root',
-  password: process.env.DB_PASSWORD || '',
-  database: process.env.DB_NAME || 'baseball_management',
+  ...dbConfig,
   waitForConnections: true,
   connectionLimit: Number(process.env.DB_CONNECTION_LIMIT) || 10,
   queueLimit: 0,
-});
-
-console.log('[boot] server.js loaded');
-console.log('[boot] __dirname =', rootDir);
-console.log('[boot] PORT =', process.env.PORT);
-console.log('[boot] NODE_ENV =', process.env.NODE_ENV);
-
-process.on('uncaughtException', (err) => {
-  console.error('[uncaughtException]', err);
-});
-
-process.on('unhandledRejection', (reason) => {
-  console.error('[unhandledRejection]', reason);
-});
-
-app.use((req, res, next) => {
-  console.log(`[request] ${req.method} ${req.url}`);
-  next();
 });
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 app.use(
   session({
-    secret: process.env.SESSION_SECRET || 'change-this-session-secret',
+    secret: process.env.SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
     cookie: {
@@ -67,10 +72,10 @@ function requireLogin(req, res, next) {
 app.get('/health', async (req, res) => {
   try {
     await dbPool.query('SELECT 1');
-    res.status(200).json({ ok: true });
+    return res.status(200).json({ ok: true, db: 'connected' });
   } catch (error) {
     console.error('[health] DB error', error);
-    res.status(500).json({ ok: false, message: 'DB接続エラー' });
+    return res.status(500).json({ ok: false, db: 'disconnected', message: 'DB接続エラー' });
   }
 });
 
@@ -81,10 +86,6 @@ app.post('/api/register', async (req, res) => {
 
   if (!name || !email || !password) {
     return res.status(400).json({ message: 'name, email, password は必須です。' });
-  }
-
-  if (password.length < 8) {
-    return res.status(400).json({ message: 'パスワードは8文字以上で入力してください。' });
   }
 
   try {
@@ -99,14 +100,16 @@ app.post('/api/register', async (req, res) => {
       [name, email, passwordHash, 'manager'],
     );
 
+    req.session.user = {
+      id: insertResult.insertId,
+      name,
+      email,
+      role: 'manager',
+    };
+
     return res.status(201).json({
       message: 'ユーザー登録が完了しました。',
-      user: {
-        id: insertResult.insertId,
-        name,
-        email,
-        role: 'manager',
-      },
+      user: req.session.user,
     });
   } catch (error) {
     console.error('[register] error', error);
@@ -120,10 +123,6 @@ app.post('/api/login', async (req, res) => {
 
   if (!email || !password) {
     return res.status(400).json({ message: 'email, password は必須です。' });
-  }
-
-  if (password.length < 8) {
-    return res.status(400).json({ message: 'パスワードは8文字以上で入力してください。' });
   }
 
   try {
@@ -179,11 +178,9 @@ app.get('/api/me', requireLogin, (req, res) => {
 app.use(express.static(rootDir));
 
 app.get('/', (req, res) => {
-  const filePath = path.join(rootDir, 'index.html');
-  console.log('[route /] sendFile =', filePath);
-  res.sendFile(filePath);
+  res.sendFile(path.join(rootDir, 'index.html'));
 });
 
 app.listen(port, host, () => {
-  console.log(`[listen] Server is running on http://${host}:${port}`);
+  console.log(`Server listening on http://${host}:${port}`);
 });
