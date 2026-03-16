@@ -78,6 +78,8 @@ function normalizeEmail(email) {
   return String(email || '').trim().toLowerCase();
 }
 
+const ALLOWED_ROLES = new Set(['coach', 'manager', 'player']);
+
 function requireLogin(req, res, next) {
   if (!req.session.user) {
     return res.status(401).json({ message: 'ログインが必要です。' });
@@ -138,9 +140,14 @@ app.post('/api/register', async (req, res) => {
 app.post('/api/login', async (req, res) => {
   const email = normalizeEmail(req.body.email);
   const password = String(req.body.password || '');
+  const selectedRole = String(req.body.role || '').trim();
 
   if (!email || !password) {
     return res.status(400).json({ message: 'email, password は必須です。' });
+  }
+
+  if (selectedRole && !ALLOWED_ROLES.has(selectedRole)) {
+    return res.status(400).json({ message: '指定されたロールが不正です。' });
   }
 
   try {
@@ -160,11 +167,19 @@ app.post('/api/login', async (req, res) => {
       return res.status(401).json({ message: 'メールアドレスまたはパスワードが正しくありません。' });
     }
 
+    const accountRole = ALLOWED_ROLES.has(user.role) ? user.role : 'manager';
+
+    if (selectedRole && selectedRole !== accountRole) {
+      return res.status(403).json({
+        message: `このアカウントは「${accountRole}」権限です。正しいロールを選択してください。`,
+      });
+    }
+
     req.session.user = {
       id: user.id,
       name: user.name,
       email: user.email,
-      role: user.role,
+      role: accountRole,
     };
 
     await saveSession(req);

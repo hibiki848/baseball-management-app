@@ -207,3 +207,47 @@ textarea { min-height: 82px; resize: vertical; }
   .bottom-nav { max-width: 720px; }
   .grid { grid-template-columns: repeat(3, 1fr); }
 }
+
+.role-select-group {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px;
+  margin: 0 0 10px;
+}
+
+.role-select-group legend {
+  color: var(--subtext);
+  font-size: 0.86rem;
+  font-weight: 600;
+  padding: 0 6px;
+}
+
+.role-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  color: var(--text);
+  font-weight: 500;
+}
+
+.role-option:last-child { margin-bottom: 0; }
+
+.role-option input {
+  width: auto;
+  min-height: auto;
+}
+
+.role-hero {
+  margin-bottom: 12px;
+}
+
+.role-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+
+@media (max-width: 360px) {
+  .role-grid { grid-template-columns: 1fr; }
+}

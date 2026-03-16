@@ -13,6 +13,17 @@
   function fmt3(n) { return Number(n || 0).toFixed(3); }
   function emptyMessage(message) { return `<div class="small">${message}</div>`; }
 
+  const rolePageMap = {
+    coach: 'coach.html',
+    manager: 'manager.html',
+    player: 'player.html',
+  };
+
+  function getRoleHome(role) {
+    return rolePageMap[role] || 'index.html';
+  }
+
+
   async function fetchCurrentUser() {
     try {
       const res = await fetch('/api/me', { credentials: 'include' });
@@ -67,13 +78,14 @@
       const fd = new FormData(loginForm);
       const email = String(fd.get('email') || '').trim().toLowerCase();
       const password = String(fd.get('password') || '');
+      const role = String(fd.get('role') || '');
 
       try {
         const res = await fetch('/api/login', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
-          body: JSON.stringify({ email, password }),
+          body: JSON.stringify({ email, password, role }),
         });
         const result = await res.json();
 
@@ -83,7 +95,7 @@
         }
 
         if (authMessage) authMessage.textContent = result.message || 'ログインに成功しました。';
-        window.location.href = 'index.html';
+        window.location.href = getRoleHome(result.user && result.user.role);
       } catch (error) {
         console.error(error);
         if (authMessage) authMessage.textContent = 'サーバー通信に失敗しました。';
@@ -120,7 +132,7 @@
 
           registerForm.reset();
           if (authMessage) authMessage.textContent = result.message || '新規登録が完了しました。';
-          window.location.href = 'index.html';
+          window.location.href = getRoleHome(result.user && result.user.role);
         } catch (error) {
           console.error(error);
           if (authMessage) authMessage.textContent = 'サーバー通信に失敗しました。';
@@ -362,6 +374,24 @@
     return `<div class="table-wrap"><table class="table"><thead><tr>${keys.map((k) => `<th>${k}</th>`).join('')}</tr></thead><tbody>${rows.map((r) => `<tr>${keys.map((k) => `<td>${r[k]}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
   }
 
+  async function enforceRolePageAccess() {
+    const requiredRole = document.body.dataset.rolePage;
+    if (!requiredRole) return true;
+
+    const user = await fetchCurrentUser();
+    if (!user) {
+      window.location.href = 'login.html';
+      return false;
+    }
+
+    if (user.role !== requiredRole) {
+      window.location.href = getRoleHome(user.role);
+      return false;
+    }
+
+    return true;
+  }
+
   async function renderSettings() {
     if (!qs('settingsRoot')) return;
 
@@ -381,6 +411,9 @@
   }
 
   document.addEventListener('DOMContentLoaded', async () => {
+    const canViewRolePage = await enforceRolePageAccess();
+    if (!canViewRolePage) return;
+
     setupNav();
     bindLogin();
     await renderSettings();
