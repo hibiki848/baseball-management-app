@@ -411,6 +411,19 @@
     qs('profileRole').textContent = user && user.role ? user.role : '-';
     qs('profileTeam').textContent = '-';
 
+    bindAccountDelete();
+
+    qs('logoutBtn').addEventListener('click', async () => {
+      try {
+        await fetch('/api/logout', { method: 'POST', credentials: 'include' });
+      } catch (error) {
+        console.error(error);
+      }
+      window.location.href = 'login.html';
+    });
+  }
+
+  function bindAccountDelete() {
     const deleteMessage = qs('accountDeleteMessage');
     const deleteConfirmTextInput = qs('deleteConfirmText');
     const deletePasswordInput = qs('deleteAccountPassword');
@@ -466,15 +479,11 @@
         }
       });
     }
+  }
 
-    qs('logoutBtn').addEventListener('click', async () => {
-      try {
-        await fetch('/api/logout', { method: 'POST', credentials: 'include' });
-      } catch (error) {
-        console.error(error);
-      }
-      window.location.href = 'login.html';
-    });
+  function renderRoleDashboard() {
+    if (!document.body.dataset.rolePage) return;
+    bindAccountDelete();
   }
 
   document.addEventListener('DOMContentLoaded', async () => {
@@ -493,5 +502,6 @@
     renderBatterAnalysis();
     renderPitcherAnalysis();
     renderTeamAnalysis();
+    renderRoleDashboard();
   });
 })();
