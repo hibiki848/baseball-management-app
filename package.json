@@ -1,0 +1,13 @@
+{
+  "name": "baseball-management-app",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Static baseball management app served with Express for Railway deployment.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2"
+  }
+}
