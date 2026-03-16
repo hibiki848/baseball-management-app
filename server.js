@@ -78,7 +78,7 @@ function normalizeEmail(email) {
   return String(email || '').trim().toLowerCase();
 }
 
-const ALLOWED_ROLES = new Set(['coach', 'manager', 'player']);
+const ALLOWED_ROLES = new Set(['player', 'coach', 'manager']);
 
 function requireLogin(req, res, next) {
   if (!req.session.user) {
@@ -101,9 +101,14 @@ app.post('/api/register', async (req, res) => {
   const name = String(req.body.name || '').trim();
   const email = normalizeEmail(req.body.email);
   const password = String(req.body.password || '');
+  const role = String(req.body.role || '').trim();
 
-  if (!name || !email || !password) {
-    return res.status(400).json({ message: 'name, email, password は必須です。' });
+  if (!name || !email || !password || !role) {
+    return res.status(400).json({ message: 'name, email, password, role は必須です。' });
+  }
+
+  if (!ALLOWED_ROLES.has(role)) {
+    return res.status(400).json({ message: '指定されたロールが不正です。' });
   }
 
   try {
@@ -115,14 +120,14 @@ app.post('/api/register', async (req, res) => {
     const passwordHash = await bcrypt.hash(password, 10);
     const [insertResult] = await dbPool.query(
       'INSERT INTO users (name, email, password_hash, role) VALUES (?, ?, ?, ?)',
-      [name, email, passwordHash, 'manager'],
+      [name, email, passwordHash, role],
     );
 
     req.session.user = {
       id: insertResult.insertId,
       name,
       email,
-      role: 'manager',
+      role,
     };
 
     await saveSession(req);
@@ -167,7 +172,7 @@ app.post('/api/login', async (req, res) => {
       return res.status(401).json({ message: 'メールアドレスまたはパスワードが正しくありません。' });
     }
 
-    const accountRole = ALLOWED_ROLES.has(user.role) ? user.role : 'manager';
+    const accountRole = ALLOWED_ROLES.has(user.role) ? user.role : 'player';
 
     if (selectedRole && selectedRole !== accountRole) {
       return res.status(403).json({
