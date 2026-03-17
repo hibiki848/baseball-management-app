@@ -12,6 +12,22 @@
   function qs(id) { return document.getElementById(id); }
   function fmt3(n) { return Number(n || 0).toFixed(3); }
   function emptyMessage(message) { return `<div class="small">${message}</div>`; }
+  function escapeHtml(value) {
+    return String(value || '')
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&#39;');
+  }
+
+  function getConditionStatus(healthValue) {
+    const health = Number(healthValue);
+    if (!Number.isFinite(health)) return { label: '未入力', className: 'status-unknown' };
+    if (health >= 4) return { label: '良い', className: 'status-good' };
+    if (health <= 2) return { label: '悪い', className: 'status-bad' };
+    return { label: '普通', className: 'status-normal' };
+  }
 
   function getRoleHome() {
     return 'index.html';
@@ -359,6 +375,79 @@
     saveLocal('conditionForm', 'conditionInputs', 'conditionMessage');
   }
 
+  async function renderConditionPage() {
+    const root = qs('conditionRoot');
+    if (!root) return;
+
+    const user = data.currentUser || await fetchCurrentUser();
+    if (!user || user.role !== 'admin') {
+      const form = qs('conditionForm');
+      if (form) {
+        const playerNameInput = form.querySelector('input[name="playerName"]');
+        if (playerNameInput) playerNameInput.value = user && user.name ? user.name : '';
+      }
+      return;
+    }
+
+    const title = qs('conditionPageTitle');
+    if (title) title.textContent = '選手一覧（体調）';
+
+    let players = [];
+    try {
+      const res = await fetch('/api/team-players', { credentials: 'include' });
+      if (res.ok) {
+        const result = await res.json();
+        players = Array.isArray(result.players) ? result.players : [];
+      }
+    } catch (error) {
+      console.error(error);
+    }
+
+    const inputLogs = JSON.parse(localStorage.getItem('conditionInputs') || '[]');
+    const latestByPlayer = new Map();
+    inputLogs.forEach((entry) => {
+      const playerName = String(entry.playerName || '').trim();
+      if (!playerName) return;
+      const current = latestByPlayer.get(playerName);
+      const candidateTime = new Date(entry.savedAt || entry.date || 0).getTime();
+      const currentTime = current ? new Date(current.savedAt || current.date || 0).getTime() : 0;
+      if (!current || candidateTime >= currentTime) {
+        latestByPlayer.set(playerName, entry);
+      }
+    });
+
+    const roster = players.map((player) => {
+      const latest = latestByPlayer.get(player.name) || null;
+      return {
+        name: player.name,
+        status: getConditionStatus(latest && latest.health),
+      };
+    });
+
+    root.innerHTML = `
+      <section class="card">
+        <h2>選手の体調ステータス</h2>
+        <div class="small">監督は閲覧のみ可能です。入力・編集はできません。</div>
+        <div id="coachConditionList" class="coach-condition-list"></div>
+      </section>
+    `;
+
+    const listRoot = qs('coachConditionList');
+    if (!listRoot) return;
+
+    if (roster.length === 0) {
+      listRoot.innerHTML = emptyMessage('選手データがまだありません。');
+      return;
+    }
+
+    listRoot.innerHTML = roster.map((player) => `
+      <div class="coach-condition-item">
+        <div class="coach-player-name">${escapeHtml(player.name)}</div>
+        <div class="condition-status-pill ${player.status.className}">${player.status.label}</div>
+      </div>
+    `).join('');
+  }
+
   function renderBatterAnalysis() {
     if (!qs('batterAnalysisRoot')) return;
     if (data.players.length === 0) {
@@ -606,6 +695,7 @@
     renderGames();
     renderGameDetail();
     renderInputs();
+    await renderConditionPage();
     renderBatterAnalysis();
     renderPitcherAnalysis();
     renderTeamAnalysis();

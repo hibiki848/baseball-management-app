@@ -267,3 +267,49 @@ textarea { min-height: 82px; resize: vertical; }
   display: grid;
   gap: 8px;
 }
+
+.coach-condition-list {
+  margin-top: 10px;
+}
+
+.coach-condition-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  background: #fff;
+}
+
+.coach-player-name {
+  font-weight: 600;
+}
+
+.condition-status-pill {
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 999px;
+}
+
+.status-good {
+  background: #e8f7ee;
+  color: var(--ok);
+}
+
+.status-normal {
+  background: #edf1f7;
+  color: #4b5563;
+}
+
+.status-bad {
+  background: #fdebec;
+  color: var(--danger);
+}
+
+.status-unknown {
+  background: #f3f4f6;
+  color: #6b7280;
+}
