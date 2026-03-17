@@ -332,6 +332,23 @@ app.get('/api/me', requireLogin, (req, res) => {
   return res.status(200).json({ user: req.session.user });
 });
 
+
+app.get('/api/team-players', requireLogin, async (req, res) => {
+  if (!req.session.user || req.session.user.role !== 'admin') {
+    return res.status(403).json({ message: '監督ロールのみ閲覧できます。' });
+  }
+
+  try {
+    const [rows] = await dbPool.query(
+      "SELECT id, name FROM users WHERE role = 'player' ORDER BY id ASC",
+    );
+    return res.status(200).json({ players: rows });
+  } catch (error) {
+    console.error('[team-players] error', error);
+    return res.status(500).json({ message: '選手一覧の取得に失敗しました。' });
+  }
+});
+
 app.use((req, res, next) => {
   if (req.method !== 'GET') {
     return next();
