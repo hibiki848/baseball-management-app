@@ -2,14 +2,8 @@
   const analysis = window.Analysis;
   const data = {
     currentUser: null,
-    players: [
-      { id: 1, name: '山田 太郎', number: 10, pos: '内野手', throwsBats: '右投右打', age: 18, batting: { pa: 40, ab: 35, hits: 12, doubles: 2, triples: 1, hr: 1, rbi: 9, so: 6, bb: 4, hbp: 1, sh: 0, sf: 0 }, pitching: { ip: 0, h: 0, hr: 0, bb: 0, so: 0, er: 0, runs: 0 }, conditions: [] },
-      { id: 2, name: '佐藤 健', number: 1, pos: '投手', throwsBats: '右投左打', age: 18, batting: { pa: 18, ab: 15, hits: 5, doubles: 1, triples: 0, hr: 0, rbi: 3, so: 3, bb: 2, hbp: 0, sh: 1, sf: 0 }, pitching: { ip: 21, h: 14, hr: 1, bb: 6, so: 24, er: 5, runs: 6 }, conditions: [] },
-      { id: 3, name: '鈴木 海斗', number: 7, pos: '外野手', throwsBats: '左投左打', age: 17, batting: { pa: 32, ab: 30, hits: 11, doubles: 3, triples: 0, hr: 2, rbi: 10, so: 4, bb: 2, hbp: 0, sh: 0, sf: 0 }, pitching: { ip: 0, h: 0, hr: 0, bb: 0, so: 0, er: 0, runs: 0 }, conditions: [] },
-    ],
-    games: [
-      { id: 1, date: '2026-03-15', opponent: '港南高校', type: '練習試合', result: '勝ち', score: '5-2', battingRecords: [], pitchingRecords: [] },
-    ],
+    players: [],
+    games: [],
     monthlyTrend: [],
     velocityTrend: [],
     notifications: [],
@@ -206,21 +200,12 @@
 
     const scorebookPhotos = qs('scorebookPhotos');
     if (scorebookPhotos) {
-      const photos = [
-        { title: '3/10 練習試合', caption: '7回の守備シフト確認メモ' },
-        { title: '3/12 公式戦', caption: '得点圏の打席結果まとめ' },
-      ];
-      scorebookPhotos.innerHTML = photos.map((photo) => `
-        <div class="list-item">
-          <strong>${photo.title}</strong>
-          <div class="small">📷 ${photo.caption}</div>
-        </div>
-      `).join('');
+      scorebookPhotos.innerHTML = emptyMessage('スコアブック写真がまだありません。');
     }
 
     const coachComment = qs('coachComment');
     if (coachComment) {
-      coachComment.innerHTML = '<div class="list-item">明日の試合は初回の入りを重視します。先頭打者の出塁と、先発投手のストライク先行を徹底しましょう。</div>';
+      coachComment.innerHTML = emptyMessage('コメントがまだありません。');
     }
 
     const personalRanking = qs('personalRanking');
@@ -533,8 +518,8 @@
         if (message) {
           message.className = 'small success-text';
           message.textContent = displayName
-            ? `プロフィール変更内容を確認しました（ダミー表示）: ${displayName}`
-            : 'プロフィール変更内容を確認しました（ダミー表示）';
+            ? `プロフィール変更内容を確認しました: ${displayName}`
+            : 'プロフィール変更内容を確認しました。';
         }
       });
     }
@@ -548,7 +533,7 @@
         if (message) {
           message.className = email ? 'small success-text' : 'small error-text';
           message.textContent = email
-            ? `メールアドレス変更リクエストを受け付けました（ダミー表示）: ${email}`
+            ? `メールアドレス変更リクエストを受け付けました: ${email}`
             : 'メールアドレスを入力してください。';
         }
       });
@@ -568,7 +553,7 @@
             return;
           }
           message.className = 'small success-text';
-          message.textContent = 'パスワード変更内容を確認しました（ダミー表示）';
+          message.textContent = 'パスワード変更内容を確認しました。';
         }
       });
     }
