@@ -1,10 +1,12 @@
 <!doctype html><html lang="ja"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/><title>ホーム</title><link rel="stylesheet" href="css/style.css"/></head>
 <body data-page="home"><div class="app"><header><h1>ホーム</h1></header><main id="homeRoot">
-<div class="card"><h2>今日の入力</h2><button id="goCondition" class="button-primary">コンディション入力へ</button></div>
-<div class="card"><h2>直近試合結果</h2><div id="recentGame"></div></div>
-<div class="card"><h2>個人成績サマリー</h2><div id="personalStats"></div></div>
-<div class="card"><h2>チーム成績サマリー</h2><div id="teamStats"></div></div>
-<div class="card"><h2>未入力通知</h2><ul id="notifications"></ul></div>
+<div class="card"><h2>共通ホーム</h2><div id="homeRoleLabel" class="small"></div><div class="small">監督・選手・マネージャーが同じ情報を確認できるホームです。</div></div>
+<div class="card home-section"><h2>直近試合結果</h2><div id="recentGame"></div></div>
+<div class="card home-section"><h2>個人成績サマリー</h2><div id="personalStats"></div></div>
+<div class="card home-section"><h2>チーム成績サマリー</h2><div id="teamStats"></div></div>
+<div class="card home-section"><h2>スコアブックの写真</h2><div id="scorebookPhotos"></div></div>
+<div class="card home-section"><h2>監督からのコメント</h2><div id="coachComment"></div></div>
+<div class="card home-section"><h2>個人成績ランキング</h2><div id="personalRanking"></div></div>
 </main>
 <nav class="bottom-nav"><a href="index.html" data-page="home">ホーム</a><a href="players.html" data-page="players">選手</a><a href="games.html" data-page="games">試合</a><a href="condition.html" data-page="condition">体調</a><a href="settings.html" data-page="settings">設定</a></nav></div>
 <script src="js/analysis.js"></script><script src="js/main.js"></script></body></html>

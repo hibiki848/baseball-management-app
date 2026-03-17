@@ -2,8 +2,14 @@
   const analysis = window.Analysis;
   const data = {
     currentUser: null,
-    players: [],
-    games: [],
+    players: [
+      { id: 1, name: '山田 太郎', number: 10, pos: '内野手', throwsBats: '右投右打', age: 18, batting: { pa: 40, ab: 35, hits: 12, doubles: 2, triples: 1, hr: 1, rbi: 9, so: 6, bb: 4, hbp: 1, sh: 0, sf: 0 }, pitching: { ip: 0, h: 0, hr: 0, bb: 0, so: 0, er: 0, runs: 0 }, conditions: [] },
+      { id: 2, name: '佐藤 健', number: 1, pos: '投手', throwsBats: '右投左打', age: 18, batting: { pa: 18, ab: 15, hits: 5, doubles: 1, triples: 0, hr: 0, rbi: 3, so: 3, bb: 2, hbp: 0, sh: 1, sf: 0 }, pitching: { ip: 21, h: 14, hr: 1, bb: 6, so: 24, er: 5, runs: 6 }, conditions: [] },
+      { id: 3, name: '鈴木 海斗', number: 7, pos: '外野手', throwsBats: '左投左打', age: 17, batting: { pa: 32, ab: 30, hits: 11, doubles: 3, triples: 0, hr: 2, rbi: 10, so: 4, bb: 2, hbp: 0, sh: 0, sf: 0 }, pitching: { ip: 0, h: 0, hr: 0, bb: 0, so: 0, er: 0, runs: 0 }, conditions: [] },
+    ],
+    games: [
+      { id: 1, date: '2026-03-15', opponent: '港南高校', type: '練習試合', result: '勝ち', score: '5-2', battingRecords: [], pitchingRecords: [] },
+    ],
     monthlyTrend: [],
     velocityTrend: [],
     notifications: [],
@@ -13,14 +19,8 @@
   function fmt3(n) { return Number(n || 0).toFixed(3); }
   function emptyMessage(message) { return `<div class="small">${message}</div>`; }
 
-  const rolePageMap = {
-    admin: 'coach.html',
-    manager: 'manager.html',
-    player: 'player.html',
-  };
-
-  function getRoleHome(role) {
-    return rolePageMap[role] || 'index.html';
+  function getRoleHome() {
+    return 'index.html';
   }
 
   const roleLabelMap = {
@@ -168,20 +168,80 @@
   function renderHome() {
     if (!qs('homeRoot')) return;
 
-    qs('recentGame').textContent = data.games[0]
-      ? `${data.games[0].date} vs ${data.games[0].opponent} (${data.games[0].score})`
-      : '試合データがまだありません。';
+    const role = data.currentUser && data.currentUser.role;
+    const roleLabel = getRoleLabel(role);
+    const homeRoleLabel = qs('homeRoleLabel');
+    if (homeRoleLabel) {
+      homeRoleLabel.textContent = `現在のロール: ${roleLabel}`;
+    }
 
-    qs('notifications').innerHTML = data.notifications.length
-      ? data.notifications.map((n) => `<li>${n}</li>`).join('')
-      : '<li class="small">通知はありません。</li>';
+    qs('recentGame').innerHTML = data.games[0]
+      ? `<div class="list-item"><strong>${data.games[0].date}</strong> vs ${data.games[0].opponent}<div class="meta">${data.games[0].type || '公式戦'} / ${data.games[0].score}</div></div>`
+      : emptyMessage('試合データがまだありません。');
 
-    qs('personalStats').innerHTML = emptyMessage('個人成績データがまだありません。');
-    qs('teamStats').innerHTML = emptyMessage('チーム成績データがまだありません。');
+    const primaryPlayer = data.players[0];
+    if (primaryPlayer) {
+      const personal = analysis.batting(primaryPlayer.batting || {});
+      qs('personalStats').innerHTML = statCards([
+        ['対象選手', primaryPlayer.name],
+        ['打率', fmt3(personal.avg)],
+        ['OPS', fmt3(personal.ops)],
+        ['打点', primaryPlayer.batting.rbi || 0],
+      ]);
+    } else {
+      qs('personalStats').innerHTML = emptyMessage('個人成績データがまだありません。');
+    }
 
-    const conditionBtn = qs('goCondition');
-    if (conditionBtn) {
-      conditionBtn.addEventListener('click', () => { window.location.href = 'condition.html'; });
+    if (data.players.length > 0) {
+      const team = analysis.team(data.players);
+      qs('teamStats').innerHTML = statCards([
+        ['チーム打率', fmt3(team.avg)],
+        ['チームOPS', fmt3(team.ops)],
+        ['チーム防御率', fmt3(team.era)],
+        ['総得点', team.totalRuns],
+      ]);
+    } else {
+      qs('teamStats').innerHTML = emptyMessage('チーム成績データがまだありません。');
+    }
+
+    const scorebookPhotos = qs('scorebookPhotos');
+    if (scorebookPhotos) {
+      const photos = [
+        { title: '3/10 練習試合', caption: '7回の守備シフト確認メモ' },
+        { title: '3/12 公式戦', caption: '得点圏の打席結果まとめ' },
+      ];
+      scorebookPhotos.innerHTML = photos.map((photo) => `
+        <div class="list-item">
+          <strong>${photo.title}</strong>
+          <div class="small">📷 ${photo.caption}</div>
+        </div>
+      `).join('');
+    }
+
+    const coachComment = qs('coachComment');
+    if (coachComment) {
+      coachComment.innerHTML = '<div class="list-item">明日の試合は初回の入りを重視します。先頭打者の出塁と、先発投手のストライク先行を徹底しましょう。</div>';
+    }
+
+    const personalRanking = qs('personalRanking');
+    if (personalRanking) {
+      const ranking = data.players
+        .map((player) => ({
+          name: player.name,
+          avg: analysis.batting(player.batting || {}).avg,
+          rbi: Number(player.batting && player.batting.rbi) || 0,
+        }))
+        .sort((a, b) => b.avg - a.avg)
+        .slice(0, 5);
+
+      personalRanking.innerHTML = ranking.length
+        ? ranking.map((entry, index) => `
+          <div class="list-item">
+            <strong>${index + 1}位 ${entry.name}</strong>
+            <div class="meta">打率: ${fmt3(entry.avg)} / 打点: ${entry.rbi}</div>
+          </div>
+        `).join('')
+        : emptyMessage('ランキングデータがまだありません。');
     }
   }
 
@@ -445,6 +505,7 @@
     qs('profileRole').textContent = getRoleLabel(user && user.role);
     qs('profileTeam').textContent = '-';
 
+    bindSettingsPreviewForms();
     bindAccountDelete();
 
     qs('logoutBtn').addEventListener('click', async () => {
@@ -455,6 +516,62 @@
       }
       window.location.href = 'login.html';
     });
+  }
+
+
+  function bindSettingsPreviewForms() {
+    const profileForm = qs('profileForm');
+    const emailForm = qs('emailForm');
+    const passwordForm = qs('passwordForm');
+
+    if (profileForm) {
+      profileForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const fd = new FormData(profileForm);
+        const displayName = String(fd.get('displayName') || '').trim();
+        const message = qs('profileMessage');
+        if (message) {
+          message.className = 'small success-text';
+          message.textContent = displayName
+            ? `プロフィール変更内容を確認しました（ダミー表示）: ${displayName}`
+            : 'プロフィール変更内容を確認しました（ダミー表示）';
+        }
+      });
+    }
+
+    if (emailForm) {
+      emailForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const fd = new FormData(emailForm);
+        const email = String(fd.get('newEmail') || '').trim();
+        const message = qs('emailMessage');
+        if (message) {
+          message.className = email ? 'small success-text' : 'small error-text';
+          message.textContent = email
+            ? `メールアドレス変更リクエストを受け付けました（ダミー表示）: ${email}`
+            : 'メールアドレスを入力してください。';
+        }
+      });
+    }
+
+    if (passwordForm) {
+      passwordForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const fd = new FormData(passwordForm);
+        const currentPassword = String(fd.get('currentPassword') || '');
+        const newPassword = String(fd.get('newPassword') || '');
+        const message = qs('passwordMessage');
+        if (message) {
+          if (!currentPassword || newPassword.length < 8) {
+            message.className = 'small error-text';
+            message.textContent = '現在のパスワードと8文字以上の新しいパスワードを入力してください。';
+            return;
+          }
+          message.className = 'small success-text';
+          message.textContent = 'パスワード変更内容を確認しました（ダミー表示）';
+        }
+      });
+    }
   }
 
   function bindAccountDelete() {

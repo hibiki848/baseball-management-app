@@ -97,14 +97,8 @@ const ROLE_LABELS = {
   player: '選手',
 };
 
-const ROLE_HOME_PATHS = {
-  admin: '/coach.html',
-  manager: '/manager.html',
-  player: '/player.html',
-};
-
-function getRoleHomePath(role) {
-  return ROLE_HOME_PATHS[role] || '/player.html';
+function getRoleHomePath() {
+  return '/index.html';
 }
 
 function requireLogin(req, res, next) {

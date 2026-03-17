@@ -257,3 +257,13 @@ textarea { min-height: 82px; resize: vertical; }
 @media (max-width: 360px) {
   .role-grid { grid-template-columns: 1fr; }
 }
+
+
+.home-section h2 {
+  margin-bottom: 10px;
+}
+
+.home-photo-list {
+  display: grid;
+  gap: 8px;
+}
