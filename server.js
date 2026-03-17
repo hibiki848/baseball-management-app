@@ -1,5 +1,4 @@
 const express = require('express');
-const path = require('path');
 const session = require('express-session');
 const mysql = require('mysql2/promise');
 const bcrypt = require('bcrypt');
@@ -97,6 +96,16 @@ const ROLE_LABELS = {
   manager: 'マネージャー',
   player: '選手',
 };
+
+const ROLE_HOME_PATHS = {
+  admin: '/coach.html',
+  manager: '/manager.html',
+  player: '/player.html',
+};
+
+function getRoleHomePath(role) {
+  return ROLE_HOME_PATHS[role] || '/player.html';
+}
 
 function requireLogin(req, res, next) {
   if (!req.session.user) {
@@ -329,11 +338,37 @@ app.get('/api/me', requireLogin, (req, res) => {
   return res.status(200).json({ user: req.session.user });
 });
 
-app.use(express.static(rootDir));
+app.use((req, res, next) => {
+  if (req.method !== 'GET') {
+    return next();
+  }
 
-app.get('/', (req, res) => {
-  res.sendFile(path.join(rootDir, 'index.html'));
+  if (req.path === '/') {
+    if (!req.session.user) {
+      return res.redirect('/login.html');
+    }
+    return res.redirect(getRoleHomePath(req.session.user.role));
+  }
+
+  if (!req.path.endsWith('.html')) {
+    return next();
+  }
+
+  if (req.path === '/login.html') {
+    if (req.session.user) {
+      return res.redirect(getRoleHomePath(req.session.user.role));
+    }
+    return next();
+  }
+
+  if (!req.session.user) {
+    return res.redirect('/login.html');
+  }
+
+  return next();
 });
+
+app.use(express.static(rootDir));
 
 app.listen(port, host, () => {
   console.log(`Server listening on http://${host}:${port}`);

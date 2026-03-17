@@ -33,6 +33,10 @@
     return roleLabelMap[role] || role || '-';
   }
 
+  function isLoginPage() {
+    return window.location.pathname.endsWith('/login.html') || window.location.pathname === '/login.html';
+  }
+
 
   async function fetchCurrentUser() {
     try {
@@ -408,6 +412,26 @@
     return true;
   }
 
+  async function enforceSessionAccess() {
+    const isPublicLoginPage = isLoginPage();
+    const user = await fetchCurrentUser();
+
+    if (isPublicLoginPage) {
+      if (user) {
+        window.location.href = getRoleHome(user.role);
+        return false;
+      }
+      return true;
+    }
+
+    if (!user) {
+      window.location.href = 'login.html';
+      return false;
+    }
+
+    return true;
+  }
+
   async function renderSettings() {
     if (!qs('settingsRoot')) return;
 
@@ -497,6 +521,9 @@
   }
 
   document.addEventListener('DOMContentLoaded', async () => {
+    const canViewPage = await enforceSessionAccess();
+    if (!canViewPage) return;
+
     const canViewRolePage = await enforceRolePageAccess();
     if (!canViewRolePage) return;
 
