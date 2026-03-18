@@ -7,7 +7,14 @@
     entries: [],
     currentGame: null,
     scorebookUpload: null,
+    activeBig3Tab: 'benchPress',
   };
+
+  const big3Fields = [
+    ['benchPress', 'ベンチプレス'],
+    ['squat', 'スクワット'],
+    ['deadlift', 'デッドリフト'],
+  ];
 
   const battingFields = [
     ['plateAppearances', '打席数'],
@@ -83,12 +90,24 @@
     return Number.isFinite(parsed) ? parsed : 0;
   }
 
+  function nullableNumber(value) {
+    if (value === '' || value == null) return null;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
   function fmt3(value) {
     return Number(number(value)).toFixed(3);
   }
 
   function fmtPct(value) {
     return `${(number(value) * 100).toFixed(1)}%`;
+  }
+
+  function fmtKg(value) {
+    if (value == null || value === '') return '—';
+    const normalized = Number(value);
+    return `${normalized.toFixed(normalized % 1 === 0 ? 0 : 1)}kg`;
   }
 
   function escapeHtml(value) {
@@ -219,6 +238,104 @@
           <div id="manualStatsMessage" class="small"></div>
           <div id="manualDerivedPreview" class="derived-box"></div>
         </form>
+      </section>
+    `;
+  }
+
+  function buildBig3InputCard(user) {
+    const players = state.players;
+    const selfPlayerId = user.role === 'player' ? user.id : null;
+    const selectablePlayers = players.filter((player) => (selfPlayerId ? player.id === selfPlayerId : true));
+    const warningText = '※ 1000kg以上の値は異常値の可能性があります。保存前に再確認してください。';
+    const currentRecord = (state.dashboard && state.dashboard.big3 && state.dashboard.big3.currentRecord) || {};
+    const disabled = selectablePlayers.length === 0 ? 'disabled' : '';
+    const playerField = selfPlayerId
+      ? `
+          <div class="form-row">
+            <label>対象選手</label>
+            <input type="text" value="${escapeHtml(selectablePlayers[0] ? selectablePlayers[0].name : user.name)}" disabled />
+            <input type="hidden" name="userId" value="${selfPlayerId}" />
+          </div>
+        `
+      : `
+          <div class="form-row">
+            <label for="big3UserId">対象選手</label>
+            <select id="big3UserId" name="userId" ${disabled}>
+              ${selectablePlayers.map((player) => `<option value="${player.id}">${escapeHtml(player.name)}</option>`).join('')}
+            </select>
+          </div>
+        `;
+
+    return `
+      <section class="card">
+        <h2>筋トレBIG3入力</h2>
+        <p class="small">ベンチプレス・スクワット・デッドリフトの最新記録を保存します。未入力の種目は空欄のまま保存できます。</p>
+        <form id="big3Form">
+          ${playerField}
+          ${selectablePlayers.length === 0 ? '<div class="notice small">BIG3を入力できる選手がまだ登録されていません。</div>' : ''}
+          <div class="field-grid">
+            ${big3Fields.map(([key, label]) => `
+              <div class="form-row compact-row">
+                <label for="big3-${key}">${label} (kg)</label>
+                <input
+                  id="big3-${key}"
+                  name="${key}"
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  inputmode="decimal"
+                  ${disabled}
+                  placeholder="未入力可"
+                  value="${currentRecord[key] == null ? '' : escapeHtml(currentRecord[key])}"
+                />
+              </div>
+            `).join('')}
+          </div>
+          <div id="big3Warning" class="small notice hidden">${warningText}</div>
+          <div class="actions single-action">
+            <button class="button-primary" type="submit" ${disabled}>BIG3を保存</button>
+          </div>
+          <div id="big3Message" class="small"></div>
+        </form>
+      </section>
+    `;
+  }
+
+  function buildBig3RankingCard(big3) {
+    const tabs = [
+      { key: 'benchPress', label: 'ベンチ' },
+      { key: 'squat', label: 'スクワット' },
+      { key: 'deadlift', label: 'デッド' },
+      { key: 'total', label: '合計' },
+    ];
+    const activeKey = big3 && big3.rankings && big3.rankings[state.activeBig3Tab] ? state.activeBig3Tab : 'benchPress';
+    const activeRanking = (big3 && big3.rankings && big3.rankings[activeKey]) || { label: 'ベンチプレス', entries: [] };
+    const visibleEntries = activeRanking.entries.slice(0, Number(big3 && big3.leaderboardLimit) || 5);
+
+    return `
+      <section class="card">
+        <h2>筋トレBIG3ランキング</h2>
+        <p class="small">全ロール共通で閲覧できます。各種目は重量の高い順で表示され、同重量は同順位です。</p>
+        <div class="tab-row" role="tablist" aria-label="BIG3ランキング切り替え">
+          ${tabs.map((tab) => `
+            <button type="button" class="tab-button ${tab.key === activeKey ? 'active' : ''}" data-big3-tab="${tab.key}" aria-pressed="${String(tab.key === activeKey)}">${tab.label}</button>
+          `).join('')}
+        </div>
+        <div class="ranking-list">
+          <div class="small ranking-caption">${escapeHtml(activeRanking.label)} 上位${visibleEntries.length || 0}名</div>
+          ${visibleEntries.length === 0 ? '<div class="small">ランキング対象データがまだありません。</div>' : visibleEntries.map((entry) => `
+            <article class="big3-rank-item ${entry.isLeader ? 'is-leader' : ''}">
+              <div class="big3-rank-main">
+                <div class="big3-rank-place">${entry.isLeader ? '👑 ' : ''}${entry.rank}位</div>
+                <div>
+                  <strong>${escapeHtml(entry.userName)}</strong>
+                  <div class="meta">更新日: ${escapeHtml(String(entry.updatedAt || '').slice(0, 10) || '未設定')}</div>
+                </div>
+              </div>
+              <div class="big3-rank-weight">${escapeHtml(fmtKg(entry.weight))}</div>
+            </article>
+          `).join('')}
+        </div>
       </section>
     `;
   }
@@ -515,6 +632,76 @@
     reload();
   }
 
+  function syncBig3Warning(form) {
+    const warning = qs('big3Warning');
+    if (!form || !warning) return;
+    const hasExtremeValue = big3Fields.some(([key]) => {
+      const value = nullableNumber(form.querySelector(`[name="${key}"]`)?.value);
+      return value != null && value >= 1000;
+    });
+    warning.classList.toggle('hidden', !hasExtremeValue);
+  }
+
+  function fillBig3Form(form) {
+    if (!form) return;
+    const selectedUserId = Number(form.userId.value);
+    const recordsByUser = (state.dashboard && state.dashboard.big3 && state.dashboard.big3.recordsByUser) || {};
+    const currentRecord = recordsByUser[selectedUserId] || {};
+    big3Fields.forEach(([key]) => {
+      const input = form.querySelector(`[name="${key}"]`);
+      if (input) input.value = currentRecord[key] == null ? '' : currentRecord[key];
+    });
+    syncBig3Warning(form);
+  }
+
+  function bindBig3Form() {
+    const form = qs('big3Form');
+    if (!form) return;
+
+    form.addEventListener('input', () => {
+      syncBig3Warning(form);
+    });
+    form.userId?.addEventListener('change', () => {
+      fillBig3Form(form);
+    });
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const message = qs('big3Message');
+      const payload = {
+        userId: Number(form.userId.value),
+      };
+
+      big3Fields.forEach(([key]) => {
+        payload[key] = form.querySelector(`[name="${key}"]`)?.value ?? '';
+      });
+
+      message.className = 'small';
+      message.textContent = '保存中です...';
+      try {
+        await api('/api/big3', { method: 'POST', body: JSON.stringify(payload) });
+        message.className = 'small success-text';
+        message.textContent = 'BIG3記録を保存しました。ホームのランキングへ反映されます。';
+        await refreshData();
+        fillBig3Form(form);
+      } catch (error) {
+        message.className = 'small error-text';
+        message.textContent = error.message;
+      }
+    });
+
+    fillBig3Form(form);
+  }
+
+  function bindBig3Tabs() {
+    document.querySelectorAll('[data-big3-tab]').forEach((button) => {
+      button.addEventListener('click', () => {
+        state.activeBig3Tab = button.dataset.big3Tab || 'benchPress';
+        renderHome();
+      });
+    });
+  }
+
   function buildCandidateEditor(candidate, uploadId, gameId) {
     const fields = candidate.category === 'pitching' ? pitchingFields : battingFields;
     return `
@@ -640,8 +827,8 @@
     const root = qs('homeRoot');
     if (!root) return;
     await refreshData();
-    const { user, recentGame, teamSummary, personalSummary, rankings, playerSummaries } = state.dashboard;
-    const sections = [buildRoleHero(user), buildRecentGameCard(recentGame)];
+    const { user, recentGame, teamSummary, personalSummary, rankings, playerSummaries, big3 } = state.dashboard;
+    const sections = [buildRoleHero(user), buildRecentGameCard(recentGame), buildBig3RankingCard(big3)];
     if (user.role !== 'manager') sections.push(buildPersonalSummaryCard(personalSummary, user));
     sections.push(buildTeamSummaryCard(teamSummary));
     if (user.role === 'manager') {
@@ -652,6 +839,7 @@
     }
     sections.push(buildRankingCard(rankings));
     root.innerHTML = sections.join('');
+    bindBig3Tabs();
     bindManualForm();
     bindScorebookForm();
     if (state.scorebookUpload) renderScorebookPreview(state.scorebookUpload);
@@ -854,6 +1042,7 @@
           </div>
         </section>
       `,
+      buildBig3InputCard(user),
       buildManualInputCard(user, { title: user.role === 'manager' ? '全選手の成績入力' : '自分の成績を入力' }),
     ];
 
@@ -862,6 +1051,7 @@
     }
 
     root.innerHTML = sections.join('');
+    bindBig3Form();
     bindManualForm();
     bindScorebookForm();
     if (state.scorebookUpload) renderScorebookPreview(state.scorebookUpload);

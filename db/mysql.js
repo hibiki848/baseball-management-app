@@ -4,7 +4,7 @@ const mysql = require('mysql2/promise');
 const session = require('express-session');
 
 const migrationsDir = path.join(__dirname, 'migrations');
-const requiredMigrationFiles = ['20260318_create_mysql_persistence.sql'];
+const requiredMigrationFiles = ['20260318_create_mysql_persistence.sql', '20260318_add_big3_records.sql'];
 
 function buildPoolOptions() {
   const connectionUrl = process.env.DATABASE_URL || process.env.MYSQL_URL || process.env.MYSQL_PUBLIC_URL || '';
@@ -61,6 +61,12 @@ function parseJson(value, fallback) {
   } catch (_error) {
     return fallback;
   }
+}
+
+function parseNullableNumber(value) {
+  if (value == null || value === '') return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 class MySQLSessionStore extends session.Store {
@@ -194,6 +200,19 @@ function mapScorebookUpload(row) {
   };
 }
 
+function mapBig3Record(row) {
+  if (!row) return null;
+  return {
+    id: Number(row.id),
+    userId: Number(row.user_id),
+    benchPress: parseNullableNumber(row.bench_press),
+    squat: parseNullableNumber(row.squat),
+    deadlift: parseNullableNumber(row.deadlift),
+    recordedAt: normalizeDateTime(row.recorded_at),
+    updatedAt: normalizeDateTime(row.updated_at),
+  };
+}
+
 const pool = mysql.createPool(buildPoolOptions());
 const sessionStore = new MySQLSessionStore(pool);
 
@@ -226,15 +245,18 @@ async function initDatabase() {
 }
 
 async function getCounts() {
-  const [userResult, gameResult] = await Promise.all([
+  const [userResult, gameResult, big3Result] = await Promise.all([
     pool.query('SELECT COUNT(*) AS count FROM users'),
     pool.query('SELECT COUNT(*) AS count FROM games'),
+    pool.query('SELECT COUNT(*) AS count FROM big3_records'),
   ]);
   const [userRows] = userResult;
   const [gameRows] = gameResult;
+  const [big3Rows] = big3Result;
   return {
     users: Number(userRows[0].count),
     games: Number(gameRows[0].count),
+    big3Records: Number(big3Rows[0].count),
   };
 }
 
@@ -377,6 +399,30 @@ async function createScorebookUpload({ gameId, fileName, imageDataUrl, extracted
   return mapScorebookUpload(rows[0]);
 }
 
+async function listBig3Records() {
+  const [rows] = await pool.query('SELECT * FROM big3_records ORDER BY updated_at DESC, id DESC');
+  return rows.map(mapBig3Record);
+}
+
+async function findBig3RecordByUserId(userId) {
+  const [rows] = await pool.query('SELECT * FROM big3_records WHERE user_id = ? LIMIT 1', [userId]);
+  return mapBig3Record(rows[0]);
+}
+
+async function upsertBig3Record({ userId, benchPress, squat, deadlift }) {
+  await pool.query(
+    `INSERT INTO big3_records (user_id, bench_press, squat, deadlift)
+     VALUES (?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE
+       bench_press = VALUES(bench_press),
+       squat = VALUES(squat),
+       deadlift = VALUES(deadlift),
+       updated_at = CURRENT_TIMESTAMP`,
+    [userId, parseNullableNumber(benchPress), parseNullableNumber(squat), parseNullableNumber(deadlift)],
+  );
+  return findBig3RecordByUserId(userId);
+}
+
 async function closeDatabase() {
   sessionStore.close();
   await pool.end();
@@ -388,16 +434,19 @@ module.exports = {
   createScorebookUpload,
   createUser,
   deleteUserAccount,
+  findBig3RecordByUserId,
   findGameById,
   findUserByEmail,
   findUserById,
   getCounts,
   initDatabase,
+  listBig3Records,
   listGames,
   listScorebookUploads,
   listStatEntries,
   listUsers,
   pool,
   sessionStore,
+  upsertBig3Record,
   upsertStatEntry,
 };

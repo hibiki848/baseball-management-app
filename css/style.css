@@ -230,6 +230,70 @@ button,
   font-weight: 700;
 }
 
+.tab-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.tab-button {
+  min-height: 40px;
+  border: 1px solid var(--border);
+  background: #fff;
+  color: var(--subtext);
+}
+
+.tab-button.active {
+  background: var(--primary);
+  color: #fff;
+  border-color: var(--primary);
+}
+
+.ranking-caption {
+  margin-bottom: 8px;
+}
+
+.ranking-list {
+  display: grid;
+  gap: 8px;
+}
+
+.big3-rank-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: #fff;
+}
+
+.big3-rank-item.is-leader {
+  border-color: #f3c969;
+  background: linear-gradient(135deg, #fff8df, #ffffff);
+  box-shadow: 0 10px 24px rgba(243, 201, 105, 0.18);
+}
+
+.big3-rank-main {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.big3-rank-place {
+  min-width: 56px;
+  font-weight: 800;
+  color: var(--primary);
+}
+
+.big3-rank-weight {
+  font-size: 1.05rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
 .score-line { margin-top: 8px; }
 .score-badge {
   display: inline-block;
@@ -266,7 +330,14 @@ button,
   .grid,
   .field-grid,
   .inline-fields,
-  .actions {
+  .actions,
+  .tab-row {
     grid-template-columns: 1fr;
+  }
+
+  .big3-rank-item,
+  .big3-rank-main {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }

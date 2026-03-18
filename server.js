@@ -7,16 +7,19 @@ const {
   createScorebookUpload,
   createUser,
   deleteUserAccount,
+  findBig3RecordByUserId,
   findGameById,
   findUserByEmail,
   findUserById,
   getCounts,
   initDatabase,
+  listBig3Records,
   listGames,
   listScorebookUploads,
   listStatEntries,
   listUsers,
   sessionStore,
+  upsertBig3Record,
   upsertStatEntry,
 } = require('./db/mysql');
 
@@ -73,6 +76,37 @@ function normalizeEmail(email) {
 function parseNumber(value, fallback = 0) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function parseNullableNumber(value) {
+  if (value === '' || value == null) return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function validateBig3Input(rawInput = {}) {
+  const fields = [
+    ['benchPress', 'ベンチプレス'],
+    ['squat', 'スクワット'],
+    ['deadlift', 'デッドリフト'],
+  ];
+  const normalized = {};
+  for (const [key, label] of fields) {
+    const rawValue = rawInput[key];
+    const value = parseNullableNumber(rawValue);
+    if (rawValue !== '' && rawValue != null && value == null) {
+      return { error: `${label}は数値で入力してください。` };
+    }
+    if (value != null && value < 0) {
+      return { error: `${label}は0kg未満を入力できません。` };
+    }
+    normalized[key] = value;
+  }
+  return { values: normalized };
+}
+
+function calculateBig3Total(record) {
+  return ['benchPress', 'squat', 'deadlift'].reduce((sum, key) => sum + (record[key] == null ? 0 : parseNumber(record[key])), 0);
 }
 
 function outsToInnings(outs) {
@@ -334,6 +368,50 @@ async function buildRankings(players, entries) {
   return rankings.sort((a, b) => b.ops - a.ops || b.battingAverage - a.battingAverage || b.runsBattedIn - a.runsBattedIn);
 }
 
+function buildBig3Rankings(players, big3Records) {
+  const playerMap = new Map(players.map((player) => [player.id, player]));
+  const lifts = [
+    { key: 'benchPress', label: 'ベンチプレス' },
+    { key: 'squat', label: 'スクワット' },
+    { key: 'deadlift', label: 'デッドリフト' },
+    { key: 'total', label: 'BIG3合計' },
+  ];
+
+  const rankingByLift = {};
+  lifts.forEach(({ key, label }) => {
+    const entriesForLift = big3Records
+      .map((record) => {
+        const player = playerMap.get(record.userId);
+        if (!player) return null;
+        const weight = key === 'total' ? calculateBig3Total(record) : record[key];
+        if (weight == null || weight <= 0) return null;
+        return {
+          userId: player.id,
+          userName: player.name,
+          weight: Number(weight),
+          updatedAt: record.updatedAt,
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => b.weight - a.weight || String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')) || a.userName.localeCompare(b.userName, 'ja'));
+
+    let previousWeight = null;
+    let previousRank = 0;
+    rankingByLift[key] = {
+      key,
+      label,
+      entries: entriesForLift.map((entry, index) => {
+        const rank = previousWeight !== null && previousWeight === entry.weight ? previousRank : index + 1;
+        previousWeight = entry.weight;
+        previousRank = rank;
+        return { ...entry, rank, isLeader: rank === 1 };
+      }),
+    };
+  });
+
+  return rankingByLift;
+}
+
 function buildGameSummary(game, entries, uploads) {
   if (!game) return null;
   const battingPlayerCount = new Set(entries.filter((entry) => entry.gameId === game.id && entry.category === 'batting').map((entry) => entry.playerId)).size;
@@ -348,16 +426,19 @@ function buildGameSummary(game, entries, uploads) {
 }
 
 async function buildDashboardPayload(reqUser) {
-  const [user, players, games, entries, uploads] = await Promise.all([
+  const [user, players, games, entries, uploads, big3Records, currentBig3Record] = await Promise.all([
     findUserById(reqUser.id),
     getPlayerUsers(),
     listGames(),
     listStatEntries(),
     listScorebookUploads(),
+    listBig3Records(),
+    findBig3RecordByUserId(reqUser.id),
   ]);
   const recentGame = buildGameSummary(games[0], entries, uploads);
   const team = await aggregateTeamStats(players, games, entries);
   const rankings = await buildRankings(players, entries);
+  const big3Rankings = buildBig3Rankings(players, big3Records);
 
   const playerSummaries = [];
   for (const player of players) {
@@ -389,6 +470,12 @@ async function buildDashboardPayload(reqUser) {
       teamSteals: team.totals.teamSteals,
     },
     rankings,
+    big3: {
+      currentRecord: currentBig3Record,
+      rankings: big3Rankings,
+      recordsByUser: Object.fromEntries(big3Records.map((record) => [record.userId, record])),
+      leaderboardLimit: 10,
+    },
     personalSummary,
     playerSummaries:
       reqUser.role === 'player'
@@ -634,6 +721,28 @@ app.post('/api/stats/manual', requireRole(['manager', 'player']), async (req, re
     createdBy: req.session.user.id,
   });
   res.status(200).json({ message: '成績を保存しました。', entry: await serializeEntry(entry) });
+});
+
+app.post('/api/big3', requireRole(['manager', 'player']), async (req, res) => {
+  const userId = Number(req.body.userId);
+  if (!userId) {
+    return res.status(400).json({ message: '対象ユーザーを指定してください。' });
+  }
+  if (!canEditPlayer(req.session.user, userId)) {
+    return res.status(403).json({ message: 'この選手のBIG3記録は編集できません。' });
+  }
+  const player = await findUserById(userId);
+  if (!player || player.role !== 'player') {
+    return res.status(404).json({ message: '対象の選手が見つかりません。' });
+  }
+
+  const validation = validateBig3Input(req.body);
+  if (validation.error) {
+    return res.status(400).json({ message: validation.error });
+  }
+
+  const record = await upsertBig3Record({ userId, ...validation.values });
+  return res.status(200).json({ message: 'BIG3記録を保存しました。', record });
 });
 
 app.post('/api/stats/scorebook-preview', requireRole(['manager']), async (req, res) => {
