@@ -4,10 +4,7 @@ const mysql = require('mysql2/promise');
 const session = require('express-session');
 
 const migrationsDir = path.join(__dirname, 'migrations');
-const requiredMigrationFiles = [
-  '20260318_create_mysql_persistence.sql',
-  '20260318_add_game_type_to_games.sql',
-];
+const requiredMigrationFiles = ['20260318_create_mysql_persistence.sql'];
 
 function buildPoolOptions() {
   const connectionUrl = process.env.DATABASE_URL || process.env.MYSQL_URL || process.env.MYSQL_PUBLIC_URL || '';
@@ -205,6 +202,27 @@ async function initDatabase() {
     const sql = await fs.readFile(path.join(migrationsDir, file), 'utf8');
     await pool.query(sql);
   }
+
+  const [columnRows] = await pool.query(
+    `SELECT COUNT(*) AS count
+     FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME = 'games'
+       AND COLUMN_NAME = 'game_type'`,
+  );
+
+  if (Number(columnRows[0]?.count || 0) === 0) {
+    await pool.query(
+      `ALTER TABLE games
+       ADD COLUMN game_type ENUM('official', 'practice', 'intrasquad') NOT NULL DEFAULT 'official' AFTER location`,
+    );
+  }
+
+  await pool.query(
+    `UPDATE games
+     SET game_type = 'official'
+     WHERE game_type IS NULL OR game_type = ''`,
+  );
 }
 
 async function getCounts() {
