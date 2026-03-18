@@ -1,15 +1,29 @@
 const express = require('express');
 const session = require('express-session');
 const bcrypt = require('bcrypt');
-const fs = require('fs/promises');
-const path = require('path');
+
+const {
+  createGame,
+  createScorebookUpload,
+  createUser,
+  deleteUserAccount,
+  findGameById,
+  findUserByEmail,
+  findUserById,
+  getCounts,
+  initDatabase,
+  listGames,
+  listScorebookUploads,
+  listStatEntries,
+  listUsers,
+  sessionStore,
+  upsertStatEntry,
+} = require('./db/mysql');
 
 const app = express();
 const port = Number(process.env.PORT) || 3000;
 const host = '0.0.0.0';
 const rootDir = __dirname;
-const dataDir = path.join(rootDir, 'data');
-const dataFile = path.join(dataDir, 'app-data.json');
 const isRailway = Boolean(process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_STATIC_URL);
 const useSecureCookie = process.env.NODE_ENV === 'production' || isRailway;
 
@@ -30,60 +44,15 @@ app.use(
     secret: process.env.SESSION_SECRET || 'dev-session-secret',
     resave: false,
     saveUninitialized: false,
+    store: sessionStore,
     cookie: {
       httpOnly: true,
       secure: useSecureCookie,
       sameSite: 'lax',
+      maxAge: Number(process.env.SESSION_TTL_MS || 7 * 24 * 60 * 60 * 1000),
     },
   }),
 );
-
-function createEmptyStore() {
-  return {
-    nextIds: { user: 1, game: 1, entry: 1, upload: 1 },
-    users: [],
-    games: [],
-    statEntries: [],
-    scorebookUploads: [],
-  };
-}
-
-let store = createEmptyStore();
-
-async function loadStore() {
-  await fs.mkdir(dataDir, { recursive: true });
-  try {
-    const raw = await fs.readFile(dataFile, 'utf8');
-    const parsed = JSON.parse(raw);
-    store = {
-      ...createEmptyStore(),
-      ...parsed,
-      nextIds: { ...createEmptyStore().nextIds, ...(parsed.nextIds || {}) },
-      users: Array.isArray(parsed.users) ? parsed.users : [],
-      games: Array.isArray(parsed.games) ? parsed.games : [],
-      statEntries: Array.isArray(parsed.statEntries) ? parsed.statEntries : [],
-      scorebookUploads: Array.isArray(parsed.scorebookUploads) ? parsed.scorebookUploads : [],
-    };
-  } catch (error) {
-    if (error.code !== 'ENOENT') {
-      throw error;
-    }
-    store = createEmptyStore();
-    await saveStore();
-  }
-}
-
-let saveQueue = Promise.resolve();
-function saveStore() {
-  saveQueue = saveQueue.then(() => fs.writeFile(dataFile, JSON.stringify(store, null, 2)));
-  return saveQueue;
-}
-
-function nextId(key) {
-  const id = store.nextIds[key] || 1;
-  store.nextIds[key] = id + 1;
-  return id;
-}
 
 function normalizeEmail(email) {
   return String(email || '').trim().toLowerCase();
@@ -99,10 +68,6 @@ function outsToInnings(outs) {
   const full = Math.floor(safeOuts / 3);
   const remainder = safeOuts % 3;
   return full + remainder / 3;
-}
-
-function round3(value) {
-  return Number(Number.isFinite(value) ? value : 0).toFixed(3);
 }
 
 function ratio(numerator, denominator) {
@@ -148,18 +113,15 @@ function destroySession(req, res) {
   });
 }
 
-function getUserById(userId) {
-  return store.users.find((user) => user.id === Number(userId));
-}
-
 function sanitizeUser(user) {
   if (!user) return null;
   const { passwordHash, ...safeUser } = user;
   return safeUser;
 }
 
-function getPlayerUsers() {
-  return store.users
+async function getPlayerUsers() {
+  const users = await listUsers();
+  return users
     .filter((user) => user.role === 'player')
     .map((user) => ({
       id: user.id,
@@ -176,12 +138,6 @@ function canEditPlayer(reqUser, playerId) {
   if (reqUser.role === 'manager') return true;
   if (reqUser.role === 'player') return Number(reqUser.id) === Number(playerId);
   return false;
-}
-
-function findEntry(gameId, playerId, category) {
-  return store.statEntries.find(
-    (entry) => entry.gameId === Number(gameId) && entry.playerId === Number(playerId) && entry.category === category,
-  );
 }
 
 function deriveBatting(rawInput = {}) {
@@ -296,11 +252,12 @@ function derivePitching(rawInput = {}) {
   };
 }
 
-function aggregateStatsForPlayer(playerId) {
+async function aggregateStatsForPlayer(playerId, allEntries) {
+  const entries = allEntries || (await listStatEntries({ playerId }));
   const battingTotals = deriveBatting().raw;
   const pitchingTotals = derivePitching().raw;
 
-  for (const entry of store.statEntries.filter((item) => item.playerId === Number(playerId))) {
+  for (const entry of entries.filter((item) => item.playerId === Number(playerId))) {
     if (entry.category === 'batting') {
       for (const [key, value] of Object.entries(entry.raw)) {
         battingTotals[key] = parseNumber(battingTotals[key]) + parseNumber(value);
@@ -319,13 +276,12 @@ function aggregateStatsForPlayer(playerId) {
   };
 }
 
-function aggregateTeamStats() {
-  const playerIds = getPlayerUsers().map((player) => player.id);
+async function aggregateTeamStats(players, games, entries) {
   const battingTotals = deriveBatting().raw;
   const pitchingTotals = derivePitching().raw;
 
-  for (const playerId of playerIds) {
-    const summary = aggregateStatsForPlayer(playerId);
+  for (const player of players) {
+    const summary = await aggregateStatsForPlayer(player.id, entries);
     for (const [key, value] of Object.entries(summary.batting.raw)) {
       battingTotals[key] = parseNumber(battingTotals[key]) + parseNumber(value);
     }
@@ -334,9 +290,9 @@ function aggregateTeamStats() {
     }
   }
 
-  const games = [...store.games].sort((a, b) => String(b.date).localeCompare(String(a.date)));
-  const totalRuns = games.reduce((sum, game) => sum + parseNumber(game.teamScore), 0);
-  const totalRunsAllowed = games.reduce((sum, game) => sum + parseNumber(game.opponentScore), 0);
+  const sortedGames = [...games].sort((a, b) => String(b.date).localeCompare(String(a.date)));
+  const totalRuns = sortedGames.reduce((sum, game) => sum + parseNumber(game.teamScore), 0);
+  const totalRunsAllowed = sortedGames.reduce((sum, game) => sum + parseNumber(game.opponentScore), 0);
 
   return {
     batting: deriveBatting(battingTotals),
@@ -349,49 +305,65 @@ function aggregateTeamStats() {
   };
 }
 
-function buildRankings() {
-  return getPlayerUsers()
-    .map((player) => {
-      const summary = aggregateStatsForPlayer(player.id);
-      return {
-        id: player.id,
-        name: player.name,
-        battingAverage: summary.batting.derived.battingAverage,
-        ops: summary.batting.derived.ops,
-        runsBattedIn: summary.batting.raw.runsBattedIn,
-        strikeouts: summary.pitching.raw.strikeouts,
-        era: summary.pitching.derived.era,
-      };
-    })
-    .sort((a, b) => b.ops - a.ops || b.battingAverage - a.battingAverage || b.runsBattedIn - a.runsBattedIn);
+async function buildRankings(players, entries) {
+  const rankings = [];
+  for (const player of players) {
+    const summary = await aggregateStatsForPlayer(player.id, entries);
+    rankings.push({
+      id: player.id,
+      name: player.name,
+      battingAverage: summary.batting.derived.battingAverage,
+      ops: summary.batting.derived.ops,
+      runsBattedIn: summary.batting.raw.runsBattedIn,
+      strikeouts: summary.pitching.raw.strikeouts,
+      era: summary.pitching.derived.era,
+    });
+  }
+  return rankings.sort((a, b) => b.ops - a.ops || b.battingAverage - a.battingAverage || b.runsBattedIn - a.runsBattedIn);
 }
 
-function buildGameSummary(game) {
+function buildGameSummary(game, entries, uploads) {
   if (!game) return null;
-  const entries = store.statEntries.filter((entry) => entry.gameId === game.id);
-  const battingPlayerCount = new Set(entries.filter((entry) => entry.category === 'batting').map((entry) => entry.playerId)).size;
-  const pitchingPlayerCount = new Set(entries.filter((entry) => entry.category === 'pitching').map((entry) => entry.playerId)).size;
+  const battingPlayerCount = new Set(entries.filter((entry) => entry.gameId === game.id && entry.category === 'batting').map((entry) => entry.playerId)).size;
+  const pitchingPlayerCount = new Set(entries.filter((entry) => entry.gameId === game.id && entry.category === 'pitching').map((entry) => entry.playerId)).size;
   return {
     ...game,
     battingPlayerCount,
     pitchingPlayerCount,
-    scorebookCount: store.scorebookUploads.filter((item) => item.gameId === game.id).length,
+    scorebookCount: uploads.filter((item) => item.gameId === game.id).length,
   };
 }
 
-function buildDashboardPayload(reqUser) {
-  const recentGame = buildGameSummary(
-    [...store.games].sort((a, b) => String(b.date).localeCompare(String(a.date)))[0],
-  );
-  const team = aggregateTeamStats();
-  const rankings = buildRankings();
-  const playerSummaries = getPlayerUsers().map((player) => ({
-    player,
-    summary: aggregateStatsForPlayer(player.id),
-  }));
+async function buildDashboardPayload(reqUser) {
+  const [user, players, games, entries, uploads] = await Promise.all([
+    findUserById(reqUser.id),
+    getPlayerUsers(),
+    listGames(),
+    listStatEntries(),
+    listScorebookUploads(),
+  ]);
+  const recentGame = buildGameSummary(games[0], entries, uploads);
+  const team = await aggregateTeamStats(players, games, entries);
+  const rankings = await buildRankings(players, entries);
+
+  const playerSummaries = [];
+  for (const player of players) {
+    playerSummaries.push({
+      player,
+      summary: await aggregateStatsForPlayer(player.id, entries),
+    });
+  }
+
+  const personalSummary =
+    reqUser.role === 'manager'
+      ? null
+      : await aggregateStatsForPlayer(
+          reqUser.role === 'player' ? reqUser.id : (playerSummaries[0] && playerSummaries[0].player.id),
+          entries,
+        );
 
   return {
-    user: sanitizeUser(getUserById(reqUser.id)),
+    user: sanitizeUser(user),
     roleLabel: ROLE_LABELS[reqUser.role] || reqUser.role,
     recentGame,
     teamSummary: {
@@ -404,10 +376,7 @@ function buildDashboardPayload(reqUser) {
       teamSteals: team.totals.teamSteals,
     },
     rankings,
-    personalSummary:
-      reqUser.role === 'manager'
-        ? null
-        : aggregateStatsForPlayer(reqUser.role === 'player' ? reqUser.id : (playerSummaries[0] && playerSummaries[0].player.id)),
+    personalSummary,
     playerSummaries:
       reqUser.role === 'player'
         ? playerSummaries.filter((item) => item.player.id === reqUser.id)
@@ -415,19 +384,16 @@ function buildDashboardPayload(reqUser) {
   };
 }
 
-function formatDirection(direction) {
-  return `${direction.pull}-${direction.center}-${direction.opposite}`;
-}
-
-function serializeEntry(entry) {
-  const user = getUserById(entry.playerId);
+async function serializeEntry(entry, userMap) {
+  const user = userMap ? userMap.get(entry.playerId) : await findUserById(entry.playerId);
   return {
     ...entry,
     playerName: user ? user.name : '不明な選手',
   };
 }
 
-function parseScorebookText(text) {
+async function parseScorebookText(text) {
+  const playerUsers = await getPlayerUsers();
   const lines = String(text || '')
     .split(/\r?\n/)
     .map((line) => line.trim())
@@ -437,7 +403,7 @@ function parseScorebookText(text) {
   for (const line of lines) {
     const [namePart, payloadPart] = line.split(':').map((chunk) => chunk && chunk.trim());
     if (!namePart || !payloadPart) continue;
-    const player = getPlayerUsers().find((item) => item.name === namePart);
+    const player = playerUsers.find((item) => item.name === namePart);
     if (!player) continue;
     const tokens = payloadPart.split(/\s+/);
     const categoryToken = tokens.shift();
@@ -461,7 +427,8 @@ function parseScorebookText(text) {
 }
 
 app.get('/health', async (req, res) => {
-  res.status(200).json({ ok: true, storage: 'json-file', users: store.users.length, games: store.games.length });
+  const counts = await getCounts();
+  res.status(200).json({ ok: true, storage: 'mysql', ...counts });
 });
 
 app.post('/api/register', async (req, res) => {
@@ -476,22 +443,18 @@ app.post('/api/register', async (req, res) => {
   if (!ALLOWED_ROLES.has(role)) {
     return res.status(400).json({ message: '指定されたロールが不正です。' });
   }
-  if (store.users.some((user) => user.email === email)) {
+  if (await findUserByEmail(email)) {
     return res.status(409).json({ message: 'このメールアドレスは既に登録されています。' });
   }
 
   const passwordHash = await bcrypt.hash(password, 10);
-  const user = {
-    id: nextId('user'),
+  const user = await createUser({
     name,
     email,
     role,
     passwordHash,
     profile: { ...PLAYER_META_DEFAULTS },
-    createdAt: new Date().toISOString(),
-  };
-  store.users.push(user);
-  await saveStore();
+  });
 
   req.session.user = sanitizeUser(user);
   await saveSession(req);
@@ -508,7 +471,7 @@ app.post('/api/login', async (req, res) => {
     return res.status(400).json({ message: 'email, password は必須です。' });
   }
 
-  const user = store.users.find((item) => item.email === email);
+  const user = await findUserByEmail(email);
   if (!user) {
     return res.status(401).json({ message: 'メールアドレスまたはパスワードが正しくありません。' });
   }
@@ -542,7 +505,7 @@ app.delete('/api/account', requireLogin, async (req, res) => {
   if (confirmationText !== '削除する') {
     return res.status(400).json({ message: '確認テキストに「削除する」と入力してください。' });
   }
-  const user = store.users.find((item) => item.id === req.session.user.id);
+  const user = await findUserById(req.session.user.id);
   if (!user) {
     return res.status(404).json({ message: 'ユーザーが見つかりません。' });
   }
@@ -551,31 +514,26 @@ app.delete('/api/account', requireLogin, async (req, res) => {
     return res.status(401).json({ message: 'パスワードが正しくありません。' });
   }
 
-  store.users = store.users.filter((item) => item.id !== user.id);
-  store.statEntries = store.statEntries.filter((entry) => entry.playerId !== user.id && entry.createdBy !== user.id);
-  store.scorebookUploads = store.scorebookUploads.filter((upload) => upload.createdBy !== user.id);
-  await saveStore();
+  await deleteUserAccount(user.id);
   await destroySession(req, res);
   return res.status(200).json({ message: 'アカウントを削除しました。' });
 });
 
-app.get('/api/me', requireLogin, (req, res) => {
-  res.status(200).json({ user: sanitizeUser(getUserById(req.session.user.id)) });
+app.get('/api/me', requireLogin, async (req, res) => {
+  res.status(200).json({ user: sanitizeUser(await findUserById(req.session.user.id)) });
 });
 
-app.get('/api/players', requireLogin, (req, res) => {
+app.get('/api/players', requireLogin, async (req, res) => {
   if (req.session.user.role === 'player') {
-    const user = getUserById(req.session.user.id);
+    const user = await findUserById(req.session.user.id);
     return res.status(200).json({ players: user ? [{ id: user.id, name: user.name, role: user.role, ...(user.profile || {}) }] : [] });
   }
-  return res.status(200).json({ players: getPlayerUsers() });
+  return res.status(200).json({ players: await getPlayerUsers() });
 });
 
-app.get('/api/games', requireLogin, (req, res) => {
-  const games = [...store.games]
-    .sort((a, b) => String(b.date).localeCompare(String(a.date)))
-    .map((game) => buildGameSummary(game));
-  res.status(200).json({ games });
+app.get('/api/games', requireLogin, async (req, res) => {
+  const [games, entries, uploads] = await Promise.all([listGames(), listStatEntries(), listScorebookUploads()]);
+  res.status(200).json({ games: games.map((game) => buildGameSummary(game, entries, uploads)) });
 });
 
 app.post('/api/games', requireRole(['coach', 'manager']), async (req, res) => {
@@ -588,8 +546,7 @@ app.post('/api/games', requireRole(['coach', 'manager']), async (req, res) => {
     return res.status(400).json({ message: '試合日と対戦相手は必須です。' });
   }
   const result = teamScore > opponentScore ? 'win' : teamScore < opponentScore ? 'loss' : 'draw';
-  const game = {
-    id: nextId('game'),
+  const game = await createGame({
     date,
     opponent,
     location,
@@ -597,27 +554,30 @@ app.post('/api/games', requireRole(['coach', 'manager']), async (req, res) => {
     opponentScore,
     result,
     createdBy: req.session.user.id,
-    createdAt: new Date().toISOString(),
-  };
-  store.games.push(game);
-  await saveStore();
-  res.status(201).json({ game: buildGameSummary(game), message: '試合を追加しました。' });
+  });
+  res.status(201).json({ game: buildGameSummary(game, [], []), message: '試合を追加しました。' });
 });
 
-app.get('/api/games/:id', requireLogin, (req, res) => {
-  const game = store.games.find((item) => item.id === Number(req.params.id));
+app.get('/api/games/:id', requireLogin, async (req, res) => {
+  const game = await findGameById(Number(req.params.id));
   if (!game) {
     return res.status(404).json({ message: '試合が見つかりません。' });
   }
-  const entries = store.statEntries
-    .filter((entry) => entry.gameId === game.id)
-    .map((entry) => serializeEntry(entry));
-  const scorebooks = store.scorebookUploads.filter((item) => item.gameId === game.id);
-  return res.status(200).json({ game: buildGameSummary(game), entries, scorebooks });
+  const [entries, scorebooks, users] = await Promise.all([
+    listStatEntries({ gameId: game.id }),
+    listScorebookUploads({ gameId: game.id }),
+    listUsers(),
+  ]);
+  const userMap = new Map(users.map((user) => [user.id, user]));
+  return res.status(200).json({
+    game: buildGameSummary(game, entries, scorebooks),
+    entries: await Promise.all(entries.map((entry) => serializeEntry(entry, userMap))),
+    scorebooks,
+  });
 });
 
-app.get('/api/dashboard', requireLogin, (req, res) => {
-  res.status(200).json(buildDashboardPayload(req.session.user));
+app.get('/api/dashboard', requireLogin, async (req, res) => {
+  res.status(200).json(await buildDashboardPayload(req.session.user));
 });
 
 app.post('/api/stats/manual', requireRole(['manager', 'player']), async (req, res) => {
@@ -634,44 +594,28 @@ app.post('/api/stats/manual', requireRole(['manager', 'player']), async (req, re
   if (!canEditPlayer(req.session.user, playerId)) {
     return res.status(403).json({ message: 'この選手の成績は編集できません。' });
   }
-  const game = store.games.find((item) => item.id === gameId);
+  const game = await findGameById(gameId);
   if (!game) {
     return res.status(404).json({ message: '対象の試合が見つかりません。' });
   }
-  const player = getUserById(playerId);
+  const player = await findUserById(playerId);
   if (!player || player.role !== 'player') {
     return res.status(404).json({ message: '対象の選手が見つかりません。' });
   }
 
   const { raw, derived } = category === 'pitching' ? derivePitching(req.body.raw) : deriveBatting(req.body.raw);
-  let entry = findEntry(gameId, playerId, category);
-  if (entry) {
-    entry.raw = raw;
-    entry.derived = derived;
-    entry.notes = notes;
-    entry.sourceType = sourceType;
-    entry.scorebookUploadId = scorebookUploadId;
-    entry.updatedAt = new Date().toISOString();
-    entry.createdBy = req.session.user.id;
-  } else {
-    entry = {
-      id: nextId('entry'),
-      gameId,
-      playerId,
-      category,
-      sourceType,
-      notes,
-      scorebookUploadId,
-      raw,
-      derived,
-      createdBy: req.session.user.id,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-    store.statEntries.push(entry);
-  }
-  await saveStore();
-  res.status(200).json({ message: '成績を保存しました。', entry: serializeEntry(entry) });
+  const entry = await upsertStatEntry({
+    gameId,
+    playerId,
+    category,
+    sourceType,
+    notes,
+    scorebookUploadId,
+    raw,
+    derived,
+    createdBy: req.session.user.id,
+  });
+  res.status(200).json({ message: '成績を保存しました。', entry: await serializeEntry(entry) });
 });
 
 app.post('/api/stats/scorebook-preview', requireRole(['manager']), async (req, res) => {
@@ -682,25 +626,21 @@ app.post('/api/stats/scorebook-preview', requireRole(['manager']), async (req, r
   if (!gameId || !imageDataUrl) {
     return res.status(400).json({ message: '試合と画像データは必須です。' });
   }
-  const game = store.games.find((item) => item.id === gameId);
+  const game = await findGameById(gameId);
   if (!game) {
     return res.status(404).json({ message: '対象の試合が見つかりません。' });
   }
 
-  const candidates = parseScorebookText(extractedText);
-  const upload = {
-    id: nextId('upload'),
+  const candidates = await parseScorebookText(extractedText);
+  const upload = await createScorebookUpload({
     gameId,
     fileName,
     imageDataUrl,
     extractedText,
     candidates,
     createdBy: req.session.user.id,
-    createdAt: new Date().toISOString(),
     parseStatus: candidates.length > 0 ? 'parsed' : 'needs_manual_review',
-  };
-  store.scorebookUploads.push(upload);
-  await saveStore();
+  });
 
   res.status(201).json({
     message:
@@ -711,11 +651,11 @@ app.post('/api/stats/scorebook-preview', requireRole(['manager']), async (req, r
   });
 });
 
-app.get('/api/stat-entries', requireLogin, (req, res) => {
-  const visibleEntries = store.statEntries.filter((entry) => (
-    req.session.user.role === 'player' ? entry.playerId === req.session.user.id : true
-  ));
-  res.status(200).json({ entries: visibleEntries.map((entry) => serializeEntry(entry)) });
+app.get('/api/stat-entries', requireLogin, async (req, res) => {
+  const visibleEntries = await listStatEntries(req.session.user.role === 'player' ? { playerId: req.session.user.id } : {});
+  const users = await listUsers();
+  const userMap = new Map(users.map((user) => [user.id, user]));
+  res.status(200).json({ entries: await Promise.all(visibleEntries.map((entry) => serializeEntry(entry, userMap))) });
 });
 
 app.use((req, res, next) => {
@@ -735,7 +675,7 @@ app.use((req, res, next) => {
 
 app.use(express.static(rootDir));
 
-loadStore()
+initDatabase()
   .then(() => {
     app.listen(port, host, () => {
       console.log(`Server listening on http://${host}:${port}`);
