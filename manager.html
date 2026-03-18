@@ -1,12 +1,23 @@
 <!doctype html>
-<html lang="ja"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/><title>マネージャーページ</title><link rel="stylesheet" href="css/style.css"/></head>
-<body data-page="manager" data-role-page="manager"><div class="app"><header><h1>マネージャーページ</h1></header><main>
-<div class="card role-hero"><h2>マネージャーダッシュボード</h2><div class="small">共通情報はホーム画面に集約しました。個別機能はこの画面に追加していきます。</div></div>
-<div class="role-grid">
-  <div class="card"><h3>今日のコンディション</h3><div class="small">今後機能追加予定</div></div>
-  <div class="card"><h3>個人成績</h3><div class="small">今後機能追加予定</div></div>
-  <div class="card"><h3>課題メモ</h3><div class="small">今後機能追加予定</div></div>
-  <div class="card"><h3>次回予定</h3><div class="small">今後機能追加予定</div></div>
-</div>
-<div class="card"><a class="button button-primary" href="index.html">共通ホームへ</a><a class="button button-secondary" href="settings.html" style="display:block;margin-top:8px;text-align:center;text-decoration:none;">設定へ</a></div>
-</main><nav class="bottom-nav"><a href="index.html" data-page="home">ホーム</a><a href="games.html" data-page="games">試合</a><a href="condition.html" data-page="condition">体調</a><a href="settings.html" data-page="settings">設定</a></nav></div><script src="js/main.js"></script></body></html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>マネージャー業務 | 野球マネジメントアプリ</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body data-page="manager" data-role-page="manager">
+  <div class="app">
+    <header><h1>マネージャー業務</h1></header>
+    <main id="roleWorkspaceRoot"></main>
+    <nav class="bottom-nav">
+      <a href="index.html" data-page="home">ホーム</a>
+      <a href="games.html" data-page="games">試合</a>
+      <a href="manager.html" data-page="manager">入力</a>
+      <a href="settings.html" data-page="settings">設定</a>
+    </nav>
+  </div>
+  <script src="js/analysis.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>
