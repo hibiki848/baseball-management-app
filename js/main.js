@@ -1,17 +1,86 @@
 (function () {
-  const analysis = window.Analysis;
-  const data = {
-    currentUser: null,
-    players: [],
+  const state = {
+    user: null,
+    dashboard: null,
     games: [],
-    monthlyTrend: [],
-    velocityTrend: [],
-    notifications: [],
+    players: [],
+    entries: [],
+    currentGame: null,
+    scorebookUpload: null,
   };
 
-  function qs(id) { return document.getElementById(id); }
-  function fmt3(n) { return Number(n || 0).toFixed(3); }
-  function emptyMessage(message) { return `<div class="small">${message}</div>`; }
+  const battingFields = [
+    ['plateAppearances', '打席数'],
+    ['atBats', '打数'],
+    ['hits', '安打数'],
+    ['doubles', '二塁打'],
+    ['triples', '三塁打'],
+    ['homeRuns', '本塁打'],
+    ['sacrificeBunts', '犠打数'],
+    ['sacrificeFlies', '犠飛'],
+    ['walks', '四球数'],
+    ['hitByPitch', '死球'],
+    ['stolenBases', '盗塁数'],
+    ['stolenBaseAttempts', '盗塁企図数'],
+    ['runsBattedIn', '打点'],
+    ['runs', '得点'],
+    ['strikeouts', '三振数'],
+    ['errors', '失策数'],
+    ['rispAtBats', '得点圏打数'],
+    ['rispHits', '得点圏安打'],
+    ['vsLeftAtBats', '左投手対打数'],
+    ['vsLeftHits', '左投手対安打'],
+    ['vsRightAtBats', '右投手対打数'],
+    ['vsRightHits', '右投手対安打'],
+  ];
+
+  const pitchingFields = [
+    ['pitchCount', '投球数'],
+    ['outsRecorded', '取得アウト数'],
+    ['maxVelocity', '最速'],
+    ['averageVelocity', '平均球速'],
+    ['breakingBallRate', '変化球割合(%)'],
+    ['battersFaced', '対戦打者'],
+    ['hitsAllowed', '被安打'],
+    ['walks', '与四球'],
+    ['hitByPitch', '与死球'],
+    ['strikeouts', '奪三振'],
+    ['earnedRuns', '自責点'],
+    ['homeRunsAllowed', '被本塁打'],
+    ['groundOuts', 'ゴロアウト'],
+    ['flyOuts', 'フライアウト'],
+    ['vsLeftBatters', '左打者対戦数'],
+    ['vsLeftHits', '左打者被安打'],
+    ['vsRightBatters', '右打者対戦数'],
+    ['vsRightHits', '右打者被安打'],
+    ['fastballPull', '直球:引っ張り'],
+    ['fastballCenter', '直球:センター'],
+    ['fastballOpposite', '直球:逆方向'],
+    ['breakingPull', '変化球:引っ張り'],
+    ['breakingCenter', '変化球:センター'],
+    ['breakingOpposite', '変化球:逆方向'],
+    ['offspeedPull', '緩球:引っ張り'],
+    ['offspeedCenter', '緩球:センター'],
+    ['offspeedOpposite', '緩球:逆方向'],
+  ];
+
+  function qs(id) {
+    return document.getElementById(id);
+  }
+
+  function number(value) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+
+  function fmt3(value) {
+    return Number(number(value)).toFixed(3);
+  }
+
+  function fmtPct(value) {
+    return `${(number(value) * 100).toFixed(1)}%`;
+  }
+
   function escapeHtml(value) {
     return String(value || '')
       .replaceAll('&', '&amp;')
@@ -21,684 +90,859 @@
       .replaceAll("'", '&#39;');
   }
 
-  function getConditionStatus(healthValue) {
-    const health = Number(healthValue);
-    if (!Number.isFinite(health)) return { label: '未入力', className: 'status-unknown' };
-    if (health >= 4) return { label: '良い', className: 'status-good' };
-    if (health <= 2) return { label: '悪い', className: 'status-bad' };
-    return { label: '普通', className: 'status-normal' };
+  async function api(path, options = {}) {
+    const res = await fetch(path, {
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
+      ...options,
+    });
+    const isJson = (res.headers.get('content-type') || '').includes('application/json');
+    const payload = isJson ? await res.json() : null;
+    if (!res.ok) {
+      throw new Error((payload && payload.message) || '通信に失敗しました。');
+    }
+    return payload;
   }
-
-  function getRoleHome() {
-    return 'index.html';
-  }
-
-  const roleLabelMap = {
-    admin: '監督',
-    manager: 'マネージャー',
-    player: '選手',
-  };
-
-  function getRoleLabel(role) {
-    return roleLabelMap[role] || role || '-';
-  }
-
-  function isLoginPage() {
-    return window.location.pathname.endsWith('/login.html') || window.location.pathname === '/login.html';
-  }
-
 
   async function fetchCurrentUser() {
+    if (state.user) return state.user;
     try {
-      const res = await fetch('/api/me', { credentials: 'include' });
-      if (!res.ok) {
-        data.currentUser = null;
-        return null;
-      }
-      const result = await res.json();
-      data.currentUser = result.user || null;
-      return data.currentUser;
+      const payload = await api('/api/me');
+      state.user = payload.user;
+      return state.user;
     } catch (error) {
-      console.error(error);
-      data.currentUser = null;
       return null;
     }
   }
 
+  function getRoleLabel(role) {
+    return { admin: '監督', manager: 'マネージャー', player: '選手' }[role] || role;
+  }
+
   function setupNav() {
-    const page = document.body.dataset.page;
-    document.querySelectorAll('.bottom-nav a').forEach((a) => {
-      if (a.dataset.page === page) a.classList.add('active');
+    const current = document.body.dataset.page;
+    document.querySelectorAll('.bottom-nav a').forEach((link) => {
+      if (link.dataset.page === current) {
+        link.classList.add('active');
+      }
+    });
+  }
+
+  function createStatGrid(items) {
+    if (!items.length) return '<div class="small">データがありません。</div>';
+    return `<div class="grid">${items.map((item) => `
+      <div class="stat-card">
+        <div class="stat-label">${escapeHtml(item.label)}</div>
+        <div class="stat-value">${escapeHtml(item.value)}</div>
+      </div>
+    `).join('')}</div>`;
+  }
+
+  function buildManualFields(fields, prefix) {
+    return fields.map(([key, label]) => `
+      <div class="form-row compact-row">
+        <label for="${prefix}-${key}">${label}</label>
+        <input id="${prefix}-${key}" name="raw.${key}" type="number" step="0.01" min="0" value="0" />
+      </div>
+    `).join('');
+  }
+
+  function buildEntryMap(entries) {
+    const map = new Map();
+    entries.forEach((entry) => {
+      map.set(`${entry.gameId}:${entry.playerId}:${entry.category}`, entry);
+    });
+    return map;
+  }
+
+  function buildManualInputCard(user, options = {}) {
+    const players = state.players;
+    const games = state.games;
+    const disabled = games.length === 0 ? 'disabled' : '';
+    const selfPlayerId = user.role === 'player' ? user.id : null;
+    const selectablePlayers = players.filter((player) => (selfPlayerId ? player.id === selfPlayerId : true));
+    const playerOptions = selectablePlayers
+      .map((player) => `<option value="${player.id}">${escapeHtml(player.name)}</option>`)
+      .join('');
+    const playerField = selfPlayerId
+      ? `
+          <div class="form-row">
+            <label>対象選手</label>
+            <input type="text" value="${escapeHtml(selectablePlayers[0] ? selectablePlayers[0].name : user.name)}" disabled />
+            <input type="hidden" name="playerId" value="${selfPlayerId}" />
+          </div>
+        `
+      : `
+          <div class="form-row">
+            <label for="manualPlayerId">対象選手</label>
+            <select id="manualPlayerId" name="playerId" ${disabled}>${playerOptions}</select>
+          </div>
+        `;
+    const gameOptions = games.map((game) => `<option value="${game.id}">${escapeHtml(`${game.date} vs ${game.opponent}`)}</option>`).join('');
+    const hint = user.role === 'player'
+      ? '自分の成績のみ入力できます。'
+      : 'マネージャーは全選手分の成績を試合単位で登録できます。';
+
+    return `
+      <section class="card">
+        <h2>${options.title || '成績手動入力'}</h2>
+        <p class="small">${hint}</p>
+        ${games.length === 0 ? '<div class="notice">先に試合を登録してください。</div>' : ''}
+        <form id="manualStatsForm">
+          <div class="form-row">
+            <label for="manualGameId">対象試合</label>
+            <select id="manualGameId" name="gameId" ${disabled}>${gameOptions}</select>
+          </div>
+          ${playerField}
+          <div class="form-row">
+            <label for="manualCategory">入力カテゴリ</label>
+            <select id="manualCategory" name="category" ${disabled}>
+              <option value="batting">個人成績（野手）</option>
+              <option value="pitching">個人成績（投手）</option>
+            </select>
+          </div>
+          <div class="form-row">
+            <label for="manualNotes">メモ</label>
+            <textarea id="manualNotes" name="notes" placeholder="打順や登板状況など"></textarea>
+          </div>
+          <div id="manualBattingFields" class="field-grid">${buildManualFields(battingFields, 'batting')}</div>
+          <div id="manualPitchingFields" class="field-grid hidden">${buildManualFields(pitchingFields, 'pitching')}</div>
+          <div class="actions single-action">
+            <button class="button-primary" type="submit" ${disabled}>保存する</button>
+          </div>
+          <div id="manualStatsMessage" class="small"></div>
+          <div id="manualDerivedPreview" class="derived-box"></div>
+        </form>
+      </section>
+    `;
+  }
+
+  function buildScorebookCard() {
+    const gameOptions = state.games.map((game) => `<option value="${game.id}">${escapeHtml(`${game.date} vs ${game.opponent}`)}</option>`).join('');
+    return `
+      <section class="card">
+        <h2>スコアブック写真からの入力</h2>
+        <p class="small">写真をアップロードし、必要に応じてスマートフォンOCRの結果や補足メモを貼り付けると候補を作成できます。候補は保存前に必ず確認・修正してください。</p>
+        ${state.games.length === 0 ? '<div class="notice">試合登録後に利用できます。</div>' : ''}
+        <form id="scorebookForm">
+          <div class="form-row">
+            <label for="scorebookGameId">対象試合</label>
+            <select id="scorebookGameId" name="gameId" ${state.games.length === 0 ? 'disabled' : ''}>${gameOptions}</select>
+          </div>
+          <div class="form-row">
+            <label for="scorebookFile">スコアブック写真</label>
+            <input id="scorebookFile" name="file" type="file" accept="image/*" ${state.games.length === 0 ? 'disabled' : ''} />
+          </div>
+          <div class="form-row">
+            <label for="scorebookText">読み取り補助テキスト</label>
+            <textarea id="scorebookText" name="extractedText" placeholder="例: 山田: batting atBats=4 hits=2 walks=1 runsBattedIn=2\n佐藤: pitching outsRecorded=15 pitchCount=86 hitsAllowed=4 walks=2 strikeouts=6 earnedRuns=1 battersFaced=23"></textarea>
+          </div>
+          <button class="button-secondary" type="submit" ${state.games.length === 0 ? 'disabled' : ''}>入力候補を作成</button>
+          <div id="scorebookMessage" class="small"></div>
+        </form>
+        <div id="scorebookPreview"></div>
+      </section>
+    `;
+  }
+
+  function buildRecentGameCard(recentGame) {
+    if (!recentGame) {
+      return `<section class="card"><h2>直近試合結果</h2><div class="small">試合がまだ登録されていません。</div></section>`;
+    }
+    const resultClass = recentGame.result === 'win' ? 'result-win' : recentGame.result === 'loss' ? 'result-loss' : '';
+    const resultLabel = recentGame.result === 'win' ? '勝利' : recentGame.result === 'loss' ? '敗戦' : '引き分け';
+    return `
+      <section class="card">
+        <h2>直近試合結果</h2>
+        <div class="list-item">
+          <strong>${escapeHtml(`${recentGame.date} vs ${recentGame.opponent}`)}</strong>
+          <div class="meta">${escapeHtml(recentGame.location || '会場未設定')}</div>
+          <div class="score-line"><span class="score-badge">${recentGame.teamScore} - ${recentGame.opponentScore}</span> <span class="${resultClass}">${resultLabel}</span></div>
+          <div class="meta">打者入力: ${recentGame.battingPlayerCount}名 / 投手入力: ${recentGame.pitchingPlayerCount}名 / スコアブック: ${recentGame.scorebookCount}件</div>
+          <a class="inline-link" href="game-detail.html?gameId=${recentGame.id}">試合詳細を見る</a>
+        </div>
+      </section>
+    `;
+  }
+
+  function buildPersonalSummaryCard(summary, user) {
+    if (!summary) return '';
+    return `
+      <section class="card">
+        <h2>個人成績サマリー</h2>
+        <p class="small">${user.role === 'player' ? '自分の成績のみ表示しています。' : '反映済みの集計結果です。'}</p>
+        ${createStatGrid([
+          { label: '打率', value: fmt3(summary.batting.derived.battingAverage) },
+          { label: '出塁率', value: fmt3(summary.batting.derived.onBasePercentage) },
+          { label: '長打率', value: fmt3(summary.batting.derived.sluggingPercentage) },
+          { label: 'OPS', value: fmt3(summary.batting.derived.ops) },
+          { label: '盗塁成功率', value: fmtPct(summary.batting.derived.stealSuccessRate) },
+          { label: '得点圏打率', value: fmt3(summary.batting.derived.rispAverage) },
+          { label: '左右投手別打率', value: `${fmt3(summary.batting.derived.vsLeftAverage)} / ${fmt3(summary.batting.derived.vsRightAverage)}` },
+          { label: '防御率', value: fmt3(summary.pitching.derived.era) },
+          { label: 'WHIP', value: fmt3(summary.pitching.derived.whip) },
+          { label: '被打率', value: fmt3(summary.pitching.derived.hitAverage) },
+          { label: '左右別被打率', value: `${fmt3(summary.pitching.derived.vsLeftHitAverage)} / ${fmt3(summary.pitching.derived.vsRightHitAverage)}` },
+          { label: 'ゴロ/フライ', value: fmt3(summary.pitching.derived.groundFlyRatio) },
+        ])}
+      </section>
+    `;
+  }
+
+  function buildTeamSummaryCard(teamSummary) {
+    return `
+      <section class="card">
+        <h2>チーム成績サマリー</h2>
+        ${createStatGrid([
+          { label: 'チーム打率', value: fmt3(teamSummary.battingAverage) },
+          { label: 'チーム出塁率', value: fmt3(teamSummary.onBasePercentage) },
+          { label: 'チームOPS', value: fmt3(teamSummary.ops) },
+          { label: '総得点', value: teamSummary.totalRuns },
+          { label: '総失点', value: teamSummary.totalRunsAllowed },
+          { label: 'チーム防御率', value: fmt3(teamSummary.teamEra) },
+          { label: 'チーム盗塁数', value: teamSummary.teamSteals },
+        ])}
+      </section>
+    `;
+  }
+
+  function buildRankingCard(rankings) {
+    return `
+      <section class="card">
+        <h2>個人成績ランキング</h2>
+        ${rankings.length === 0 ? '<div class="small">ランキング対象データがありません。</div>' : rankings.map((player, index) => `
+          <div class="list-item">
+            <strong>${index + 1}位 ${escapeHtml(player.name)}</strong>
+            <div class="meta">OPS ${fmt3(player.ops)} / 打率 ${fmt3(player.battingAverage)} / 打点 ${player.runsBattedIn} / 奪三振 ${player.strikeouts} / 防御率 ${fmt3(player.era)}</div>
+          </div>
+        `).join('')}
+      </section>
+    `;
+  }
+
+  function buildPlayerSummaryTable(playerSummaries) {
+    return `
+      <section class="card">
+        <h2>チーム全体の成績確認</h2>
+        <div class="table-wrap">
+          <table class="table">
+            <thead><tr><th>選手</th><th>打率</th><th>OPS</th><th>打点</th><th>防御率</th><th>WHIP</th></tr></thead>
+            <tbody>
+              ${playerSummaries.map(({ player, summary }) => `
+                <tr>
+                  <td>${escapeHtml(player.name)}</td>
+                  <td>${fmt3(summary.batting.derived.battingAverage)}</td>
+                  <td>${fmt3(summary.batting.derived.ops)}</td>
+                  <td>${summary.batting.raw.runsBattedIn}</td>
+                  <td>${fmt3(summary.pitching.derived.era)}</td>
+                  <td>${fmt3(summary.pitching.derived.whip)}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    `;
+  }
+
+  function buildRoleHero(user) {
+    const actionLink = user.role === 'manager' ? 'manager.html' : user.role === 'player' ? 'player.html' : 'coach.html';
+    const actionLabel = user.role === 'manager' ? '入力専用ページ' : user.role === 'player' ? '自分の入力ページ' : '監督ビュー';
+    return `
+      <section class="card role-hero">
+        <div class="hero-kicker">${escapeHtml(getRoleLabel(user.role))}</div>
+        <h2>${escapeHtml(user.name)} さんのホーム</h2>
+        <p class="small">ロールに必要な情報だけを表示しています。共通ホームは廃止しました。</p>
+        <a class="button button-secondary" href="${actionLink}">${actionLabel}</a>
+      </section>
+    `;
+  }
+
+  function getMatchingEntry(form) {
+    const entryMap = buildEntryMap(state.entries);
+    const gameId = form.querySelector('[name="gameId"]')?.value;
+    const playerId = form.querySelector('[name="playerId"]')?.value;
+    const category = form.querySelector('[name="category"]')?.value;
+    return entryMap.get(`${gameId}:${playerId}:${category}`) || null;
+  }
+
+  function resetFields(form, fields) {
+    fields.forEach(([key]) => {
+      const input = form.querySelector(`[name="raw.${key}"]`);
+      if (input) input.value = '0';
+    });
+  }
+
+  function applyEntryToForm(form, entry) {
+    const category = form.querySelector('[name="category"]')?.value;
+    resetFields(form, battingFields);
+    resetFields(form, pitchingFields);
+    form.querySelector('[name="notes"]').value = entry ? entry.notes || '' : '';
+    if (!entry) return;
+    const fields = category === 'pitching' ? pitchingFields : battingFields;
+    fields.forEach(([key]) => {
+      const input = form.querySelector(`[name="raw.${key}"]`);
+      if (input) input.value = entry.raw[key] ?? 0;
+    });
+  }
+
+  function collectRaw(form, category) {
+    const fields = category === 'pitching' ? pitchingFields : battingFields;
+    return fields.reduce((acc, [key]) => {
+      const input = form.querySelector(`[name="raw.${key}"]`);
+      acc[key] = number(input && input.value);
+      return acc;
+    }, {});
+  }
+
+  function battingDerived(raw) {
+    const singles = Math.max(0, number(raw.hits) - number(raw.doubles) - number(raw.triples) - number(raw.homeRuns));
+    const totalBases = singles + number(raw.doubles) * 2 + number(raw.triples) * 3 + number(raw.homeRuns) * 4;
+    const avg = number(raw.atBats) ? number(raw.hits) / number(raw.atBats) : 0;
+    const obpDen = number(raw.atBats) + number(raw.walks) + number(raw.hitByPitch) + number(raw.sacrificeFlies);
+    const obp = obpDen ? (number(raw.hits) + number(raw.walks) + number(raw.hitByPitch)) / obpDen : 0;
+    const slg = number(raw.atBats) ? totalBases / number(raw.atBats) : 0;
+    return {
+      battingAverage: avg,
+      onBasePercentage: obp,
+      sluggingPercentage: slg,
+      ops: obp + slg,
+      stealSuccessRate: number(raw.stolenBaseAttempts) ? number(raw.stolenBases) / number(raw.stolenBaseAttempts) : 0,
+      rispAverage: number(raw.rispAtBats) ? number(raw.rispHits) / number(raw.rispAtBats) : 0,
+      vsLeftAverage: number(raw.vsLeftAtBats) ? number(raw.vsLeftHits) / number(raw.vsLeftAtBats) : 0,
+      vsRightAverage: number(raw.vsRightAtBats) ? number(raw.vsRightHits) / number(raw.vsRightAtBats) : 0,
+    };
+  }
+
+  function pitchingDerived(raw) {
+    const innings = number(raw.outsRecorded) / 3;
+    return {
+      era: innings ? (number(raw.earnedRuns) * 9) / innings : 0,
+      whip: innings ? (number(raw.hitsAllowed) + number(raw.walks)) / innings : 0,
+      hitAverage: number(raw.battersFaced) ? number(raw.hitsAllowed) / number(raw.battersFaced) : 0,
+      vsLeftHitAverage: number(raw.vsLeftBatters) ? number(raw.vsLeftHits) / number(raw.vsLeftBatters) : 0,
+      vsRightHitAverage: number(raw.vsRightBatters) ? number(raw.vsRightHits) / number(raw.vsRightBatters) : 0,
+      groundFlyRatio: number(raw.flyOuts) ? number(raw.groundOuts) / number(raw.flyOuts) : number(raw.groundOuts),
+    };
+  }
+
+  function renderManualDerivedPreview(form) {
+    const category = form.querySelector('[name="category"]').value;
+    const raw = collectRaw(form, category);
+    const target = qs('manualDerivedPreview');
+    if (!target) return;
+    if (category === 'batting') {
+      const d = battingDerived(raw);
+      target.innerHTML = createStatGrid([
+        { label: '打率', value: fmt3(d.battingAverage) },
+        { label: '出塁率', value: fmt3(d.onBasePercentage) },
+        { label: '長打率', value: fmt3(d.sluggingPercentage) },
+        { label: 'OPS', value: fmt3(d.ops) },
+        { label: '盗塁成功率', value: fmtPct(d.stealSuccessRate) },
+        { label: '得点圏打率', value: fmt3(d.rispAverage) },
+        { label: '左右投手別打率', value: `${fmt3(d.vsLeftAverage)} / ${fmt3(d.vsRightAverage)}` },
+      ]);
+      return;
+    }
+    const d = pitchingDerived(raw);
+    target.innerHTML = createStatGrid([
+      { label: '被打率', value: fmt3(d.hitAverage) },
+      { label: '左右別被打率', value: `${fmt3(d.vsLeftHitAverage)} / ${fmt3(d.vsRightHitAverage)}` },
+      { label: '防御率', value: fmt3(d.era) },
+      { label: 'WHIP', value: fmt3(d.whip) },
+      { label: 'ゴロ/フライ', value: fmt3(d.groundFlyRatio) },
+    ]);
+  }
+
+  function toggleCategoryFields(category) {
+    qs('manualBattingFields')?.classList.toggle('hidden', category !== 'batting');
+    qs('manualPitchingFields')?.classList.toggle('hidden', category !== 'pitching');
+  }
+
+  function bindManualForm() {
+    const form = qs('manualStatsForm');
+    if (!form) return;
+    const categorySelect = qs('manualCategory');
+    const reload = () => {
+      toggleCategoryFields(categorySelect.value);
+      applyEntryToForm(form, getMatchingEntry(form));
+      renderManualDerivedPreview(form);
+    };
+
+    form.addEventListener('change', (event) => {
+      if (['manualCategory', 'manualGameId', 'manualPlayerId'].includes(event.target.id)) {
+        reload();
+      }
+      if (String(event.target.name || '').startsWith('raw.')) {
+        renderManualDerivedPreview(form);
+      }
+    });
+    form.addEventListener('input', (event) => {
+      if (String(event.target.name || '').startsWith('raw.')) {
+        renderManualDerivedPreview(form);
+      }
+    });
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const message = qs('manualStatsMessage');
+      const category = categorySelect.value;
+      const payload = {
+        gameId: number(form.gameId.value),
+        playerId: number(form.playerId.value),
+        category,
+        notes: form.notes.value,
+        sourceType: 'manual',
+        raw: collectRaw(form, category),
+      };
+      message.className = 'small';
+      message.textContent = '保存中です...';
+      try {
+        await api('/api/stats/manual', { method: 'POST', body: JSON.stringify(payload) });
+        message.classList.add('success-text');
+        message.textContent = '成績を保存しました。ホームのサマリーへ反映されます。';
+        await refreshData();
+      } catch (error) {
+        message.classList.add('error-text');
+        message.textContent = error.message;
+      }
+    });
+
+    reload();
+  }
+
+  function buildCandidateEditor(candidate, uploadId, gameId) {
+    const fields = candidate.category === 'pitching' ? pitchingFields : battingFields;
+    return `
+      <form class="list-item scorebook-candidate" data-upload-id="${uploadId}" data-player-id="${candidate.playerId}" data-category="${candidate.category}" data-game-id="${gameId}">
+        <strong>${escapeHtml(candidate.playerName)} / ${candidate.category === 'pitching' ? '投手' : '野手'}</strong>
+        <div class="meta">自動候補を確認してから保存してください。</div>
+        <div class="field-grid compact-top">
+          ${fields.map(([key, label]) => `
+            <div class="form-row compact-row">
+              <label>${label}</label>
+              <input type="number" step="0.01" min="0" name="raw.${key}" value="${number(candidate.raw[key])}" />
+            </div>
+          `).join('')}
+        </div>
+        <div class="form-row compact-top">
+          <label>メモ</label>
+          <textarea name="notes">スコアブック写真から作成した候補を確認済み</textarea>
+        </div>
+        <button class="button-primary" type="submit">この候補を保存</button>
+      </form>
+    `;
+  }
+
+  function renderScorebookPreview(upload) {
+    const root = qs('scorebookPreview');
+    if (!root) return;
+    const fallback = state.players[0]
+      ? buildCandidateEditor({ playerId: state.players[0].id, playerName: state.players[0].name, category: 'batting', raw: {} }, upload.id, upload.gameId)
+      : '<div class="small">選手登録後に候補修正フォームを表示できます。</div>';
+    root.innerHTML = `
+      <div class="upload-preview">
+        <img src="${upload.imageDataUrl}" alt="scorebook preview" class="scorebook-image" />
+        <div class="small">解析ステータス: ${escapeHtml(upload.parseStatus)}</div>
+      </div>
+      <div class="small">${upload.candidates.length > 0 ? '候補が作成されました。必要な箇所を修正して保存してください。' : '候補を十分に読み取れなかったため、手動修正フォームを表示しています。'}</div>
+      ${(upload.candidates.length > 0 ? upload.candidates : []).map((candidate) => buildCandidateEditor(candidate, upload.id, upload.gameId)).join('') || fallback}
+    `;
+
+    root.querySelectorAll('.scorebook-candidate').forEach((form) => {
+      form.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const category = form.dataset.category;
+        const fields = category === 'pitching' ? pitchingFields : battingFields;
+        const raw = fields.reduce((acc, [key]) => {
+          acc[key] = number(form.querySelector(`[name="raw.${key}"]`)?.value);
+          return acc;
+        }, {});
+        const payload = {
+          gameId: number(form.dataset.gameId),
+          playerId: number(form.dataset.playerId),
+          category,
+          notes: form.querySelector('[name="notes"]').value,
+          sourceType: 'scorebook',
+          scorebookUploadId: number(form.dataset.uploadId),
+          raw,
+        };
+        try {
+          await api('/api/stats/manual', { method: 'POST', body: JSON.stringify(payload) });
+          form.insertAdjacentHTML('beforeend', '<div class="small success-text">保存しました。</div>');
+          await refreshData();
+        } catch (error) {
+          form.insertAdjacentHTML('beforeend', `<div class="small error-text">${escapeHtml(error.message)}</div>`);
+        }
+      });
+    });
+  }
+
+  async function readFileAsDataUrl(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function bindScorebookForm() {
+    const form = qs('scorebookForm');
+    if (!form) return;
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const file = form.file.files[0];
+      const message = qs('scorebookMessage');
+      if (!file) {
+        message.className = 'small error-text';
+        message.textContent = '画像ファイルを選択してください。';
+        return;
+      }
+      message.className = 'small';
+      message.textContent = '入力候補を作成中です...';
+      try {
+        const imageDataUrl = await readFileAsDataUrl(file);
+        const payload = await api('/api/stats/scorebook-preview', {
+          method: 'POST',
+          body: JSON.stringify({
+            gameId: number(form.gameId.value),
+            fileName: file.name,
+            imageDataUrl,
+            extractedText: form.extractedText.value,
+          }),
+        });
+        message.className = 'small success-text';
+        message.textContent = payload.message;
+        state.scorebookUpload = payload.upload;
+        renderScorebookPreview(payload.upload);
+      } catch (error) {
+        message.className = 'small error-text';
+        message.textContent = error.message;
+      }
+    });
+  }
+
+  async function refreshData() {
+    const [dashboard, games, players, entries] = await Promise.all([
+      api('/api/dashboard'),
+      api('/api/games'),
+      api('/api/players'),
+      api('/api/stat-entries'),
+    ]);
+    state.dashboard = dashboard;
+    state.games = games.games;
+    state.players = players.players;
+    state.entries = entries.entries;
+    state.user = dashboard.user;
+  }
+
+  async function renderHome() {
+    const root = qs('homeRoot');
+    if (!root) return;
+    await refreshData();
+    const { user, recentGame, teamSummary, personalSummary, rankings, playerSummaries } = state.dashboard;
+    const sections = [buildRoleHero(user), buildRecentGameCard(recentGame)];
+    if (user.role !== 'manager') sections.push(buildPersonalSummaryCard(personalSummary, user));
+    sections.push(buildTeamSummaryCard(teamSummary));
+    if (user.role === 'manager' || user.role === 'player') {
+      sections.push(buildManualInputCard(user));
+    }
+    if (user.role === 'manager') {
+      sections.push(buildScorebookCard());
+      sections.push(buildPlayerSummaryTable(playerSummaries));
+    }
+    if (user.role === 'admin') {
+      sections.push(buildPlayerSummaryTable(playerSummaries));
+    }
+    sections.push(buildRankingCard(rankings));
+    root.innerHTML = sections.join('');
+    bindManualForm();
+    bindScorebookForm();
+    if (state.scorebookUpload) renderScorebookPreview(state.scorebookUpload);
+  }
+
+  async function renderRoleWorkspace() {
+    const root = qs('roleWorkspaceRoot');
+    if (!root) return;
+    await refreshData();
+    const user = state.user;
+    const requiredRole = document.body.dataset.rolePage;
+    if (requiredRole && requiredRole !== user.role) {
+      window.location.href = 'index.html';
+      return;
+    }
+    const blocks = [buildRoleHero(user)];
+    if (user.role === 'manager') {
+      blocks.push(buildManualInputCard(user, { title: '全選手の成績入力' }));
+      blocks.push(buildScorebookCard());
+      blocks.push(buildPlayerSummaryTable(state.dashboard.playerSummaries));
+    } else if (user.role === 'player') {
+      blocks.push(buildPersonalSummaryCard(state.dashboard.personalSummary, user));
+      blocks.push(buildManualInputCard(user, { title: '自分の成績を入力' }));
+    } else {
+      blocks.push(buildTeamSummaryCard(state.dashboard.teamSummary));
+      blocks.push(buildPlayerSummaryTable(state.dashboard.playerSummaries));
+      blocks.push(buildRankingCard(state.dashboard.rankings));
+    }
+    root.innerHTML = blocks.join('');
+    bindManualForm();
+    bindScorebookForm();
+    if (state.scorebookUpload) renderScorebookPreview(state.scorebookUpload);
+  }
+
+  async function renderGames() {
+    const root = qs('gamesRoot');
+    if (!root) return;
+    await refreshData();
+    const user = state.user;
+    root.innerHTML = `
+      ${['admin', 'manager'].includes(user.role) ? `
+        <section class="card">
+          <h2>試合登録</h2>
+          <form id="gameForm">
+            <div class="form-row"><label for="gameDate">試合日</label><input id="gameDate" name="date" type="date" required /></div>
+            <div class="form-row"><label for="gameOpponent">対戦相手</label><input id="gameOpponent" name="opponent" type="text" required placeholder="○○高校" /></div>
+            <div class="form-row"><label for="gameLocation">会場</label><input id="gameLocation" name="location" type="text" placeholder="○○球場" /></div>
+            <div class="inline-fields">
+              <div class="form-row"><label for="gameTeamScore">自チーム得点</label><input id="gameTeamScore" name="teamScore" type="number" min="0" value="0" /></div>
+              <div class="form-row"><label for="gameOpponentScore">相手得点</label><input id="gameOpponentScore" name="opponentScore" type="number" min="0" value="0" /></div>
+            </div>
+            <button class="button-primary" type="submit">試合を追加</button>
+            <div id="gameFormMessage" class="small"></div>
+          </form>
+        </section>
+      ` : ''}
+      <section class="card">
+        <h2>登録済み試合</h2>
+        ${state.games.length === 0 ? '<div class="small">試合がまだ登録されていません。</div>' : state.games.map((game) => `
+          <div class="list-item">
+            <strong>${escapeHtml(`${game.date} vs ${game.opponent}`)}</strong>
+            <div class="meta">${escapeHtml(game.location || '会場未設定')} / ${game.teamScore}-${game.opponentScore}</div>
+            <div class="meta">打者入力 ${game.battingPlayerCount}名 / 投手入力 ${game.pitchingPlayerCount}名 / スコアブック ${game.scorebookCount}件</div>
+            <a class="inline-link" href="game-detail.html?gameId=${game.id}">試合詳細へ</a>
+          </div>
+        `).join('')}
+      </section>
+    `;
+
+    const form = qs('gameForm');
+    if (form) {
+      form.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const message = qs('gameFormMessage');
+        message.className = 'small';
+        message.textContent = '登録中です...';
+        try {
+          await api('/api/games', {
+            method: 'POST',
+            body: JSON.stringify({
+              date: form.date.value,
+              opponent: form.opponent.value,
+              location: form.location.value,
+              teamScore: number(form.teamScore.value),
+              opponentScore: number(form.opponentScore.value),
+            }),
+          });
+          message.className = 'small success-text';
+          message.textContent = '試合を追加しました。';
+          await renderGames();
+        } catch (error) {
+          message.className = 'small error-text';
+          message.textContent = error.message;
+        }
+      });
+    }
+  }
+
+  async function renderGameDetail() {
+    const root = qs('gameDetailRoot');
+    if (!root) return;
+    const params = new URLSearchParams(window.location.search);
+    const gameId = params.get('gameId');
+    if (!gameId) {
+      root.innerHTML = '<section class="card"><div class="small">試合が指定されていません。</div></section>';
+      return;
+    }
+    try {
+      const payload = await api(`/api/games/${gameId}`);
+      const battingEntries = payload.entries.filter((entry) => entry.category === 'batting');
+      const pitchingEntries = payload.entries.filter((entry) => entry.category === 'pitching');
+      root.innerHTML = `
+        <section class="card">
+          <h2>${escapeHtml(`${payload.game.date} vs ${payload.game.opponent}`)}</h2>
+          <div class="small">${escapeHtml(payload.game.location || '会場未設定')} / ${payload.game.teamScore}-${payload.game.opponentScore}</div>
+        </section>
+        <section class="card">
+          <h2>打撃入力一覧</h2>
+          ${battingEntries.length === 0 ? '<div class="small">まだ打撃入力がありません。</div>' : `
+            <div class="table-wrap"><table class="table"><thead><tr><th>選手</th><th>打率</th><th>OPS</th><th>打点</th><th>盗塁</th><th>得点圏打率</th></tr></thead><tbody>
+              ${battingEntries.map((entry) => `
+                <tr><td>${escapeHtml(entry.playerName)}</td><td>${fmt3(entry.derived.battingAverage)}</td><td>${fmt3(entry.derived.ops)}</td><td>${entry.raw.runsBattedIn}</td><td>${entry.raw.stolenBases}</td><td>${fmt3(entry.derived.rispAverage)}</td></tr>
+              `).join('')}
+            </tbody></table></div>
+          `}
+        </section>
+        <section class="card">
+          <h2>投手入力一覧</h2>
+          ${pitchingEntries.length === 0 ? '<div class="small">まだ投手入力がありません。</div>' : `
+            <div class="table-wrap"><table class="table"><thead><tr><th>選手</th><th>防御率</th><th>WHIP</th><th>被打率</th><th>球速(最速/平均)</th><th>球種別打球方向</th></tr></thead><tbody>
+              ${pitchingEntries.map((entry) => `
+                <tr><td>${escapeHtml(entry.playerName)}</td><td>${fmt3(entry.derived.era)}</td><td>${fmt3(entry.derived.whip)}</td><td>${fmt3(entry.derived.hitAverage)}</td><td>${entry.raw.maxVelocity}/${entry.raw.averageVelocity}</td><td>直球 ${entry.raw.fastballPull}-${entry.raw.fastballCenter}-${entry.raw.fastballOpposite}</td></tr>
+              `).join('')}
+            </tbody></table></div>
+          `}
+        </section>
+        <section class="card">
+          <h2>スコアブック写真</h2>
+          ${payload.scorebooks.length === 0 ? '<div class="small">まだアップロードされていません。</div>' : payload.scorebooks.map((upload) => `
+            <div class="list-item">
+              <strong>${escapeHtml(upload.fileName)}</strong>
+              <div class="meta">候補 ${upload.candidates.length}件 / ${escapeHtml(upload.parseStatus)}</div>
+              <img src="${upload.imageDataUrl}" alt="scorebook" class="scorebook-image compact-image" />
+            </div>
+          `).join('')}
+        </section>
+      `;
+    } catch (error) {
+      root.innerHTML = `<section class="card"><div class="small error-text">${escapeHtml(error.message)}</div></section>`;
+    }
+  }
+
+  async function renderSettings() {
+    if (!qs('settingsRoot')) return;
+    const user = await fetchCurrentUser();
+    if (!user) {
+      window.location.href = 'login.html';
+      return;
+    }
+    qs('profileName').textContent = user.name;
+    qs('profileRole').textContent = getRoleLabel(user.role);
+    qs('profileTeam').textContent = '野球部';
+    qs('logoutBtn')?.addEventListener('click', async () => {
+      await api('/api/logout', { method: 'POST' });
+      window.location.href = 'login.html';
+    });
+    qs('deleteAccountBtn')?.addEventListener('click', async () => {
+      const message = qs('accountDeleteMessage');
+      try {
+        await api('/api/account', {
+          method: 'DELETE',
+          body: JSON.stringify({
+            confirmationText: qs('deleteConfirmText').value,
+            password: qs('deleteAccountPassword').value,
+          }),
+        });
+        message.className = 'small success-text';
+        message.textContent = 'アカウントを削除しました。';
+        window.location.href = 'login.html';
+      } catch (error) {
+        message.className = 'small error-text';
+        message.textContent = error.message;
+      }
+    });
+    ['profileForm', 'emailForm', 'passwordForm'].forEach((id) => {
+      const form = qs(id);
+      if (form) {
+        form.addEventListener('submit', (event) => {
+          event.preventDefault();
+          const messageId = id === 'profileForm' ? 'profileMessage' : id === 'emailForm' ? 'emailMessage' : 'passwordMessage';
+          qs(messageId).className = 'small success-text';
+          qs(messageId).textContent = '現在のサンプル実装ではプレビューのみ対応しています。';
+        });
+      }
     });
   }
 
   function bindLogin() {
     const loginForm = qs('loginForm');
-    if (!loginForm) return;
-
     const registerForm = qs('registerForm');
-    const authMessage = qs('authMessage');
-    const tabs = document.querySelectorAll('[data-auth-tab]');
-    const panels = document.querySelectorAll('[data-auth-panel]');
-
-    function switchAuthTab(name) {
-      tabs.forEach((tab) => {
-        const active = tab.dataset.authTab === name;
-        tab.classList.toggle('active', active);
-        tab.setAttribute('aria-selected', active ? 'true' : 'false');
+    if (!loginForm || !registerForm) return;
+    const message = qs('authMessage');
+    document.querySelectorAll('[data-auth-tab]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const tab = button.dataset.authTab;
+        const loginActive = tab === 'login';
+        document.querySelectorAll('[data-auth-tab]').forEach((item) => item.classList.toggle('active', item === button));
+        loginForm.hidden = !loginActive;
+        registerForm.hidden = loginActive;
       });
-      panels.forEach((panel) => {
-        panel.hidden = panel.dataset.authPanel !== name;
-      });
-      if (authMessage) authMessage.textContent = '';
-    }
-
-    tabs.forEach((tab) => {
-      tab.addEventListener('click', () => switchAuthTab(tab.dataset.authTab));
     });
 
-    loginForm.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const fd = new FormData(loginForm);
-      const email = String(fd.get('email') || '').trim().toLowerCase();
-      const password = String(fd.get('password') || '');
-      const role = String(fd.get('role') || '');
-
+    loginForm.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const formData = new FormData(loginForm);
+      message.textContent = 'ログイン中です...';
       try {
-        const res = await fetch('/api/login', {
+        const payload = await api('/api/login', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify({ email, password, role }),
+          body: JSON.stringify({
+            email: formData.get('email'),
+            password: formData.get('password'),
+            role: formData.get('role'),
+          }),
         });
-        const result = await res.json();
-
-        if (!res.ok) {
-          if (authMessage) authMessage.textContent = result.message || 'ログインに失敗しました。';
-          return;
-        }
-
-        if (authMessage) authMessage.textContent = result.message || 'ログインに成功しました。';
-        window.location.href = getRoleHome(result.user && result.user.role);
+        state.user = payload.user;
+        window.location.href = 'index.html';
       } catch (error) {
-        console.error(error);
-        if (authMessage) authMessage.textContent = 'サーバー通信に失敗しました。';
+        message.textContent = error.message;
       }
     });
 
-    if (registerForm) {
-      registerForm.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const fd = new FormData(registerForm);
-        const name = String(fd.get('name') || '').trim();
-        const email = String(fd.get('email') || '').trim().toLowerCase();
-        const password = String(fd.get('password') || '');
-        const passwordConfirm = String(fd.get('passwordConfirm') || '');
-        const role = String(fd.get('role') || '').trim();
-
-        if (!role) {
-          if (authMessage) authMessage.textContent = 'ロールを選択してください。';
-          return;
-        }
-
-        if (password !== passwordConfirm) {
-          if (authMessage) authMessage.textContent = '確認用パスワードが一致しません。';
-          return;
-        }
-
-        try {
-          const res = await fetch('/api/register', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
-            body: JSON.stringify({ name, email, password, role }),
-          });
-          const result = await res.json();
-
-          if (!res.ok) {
-            if (authMessage) authMessage.textContent = result.message || '新規登録に失敗しました。';
-            return;
-          }
-
-          registerForm.reset();
-          if (authMessage) authMessage.textContent = result.message || '新規登録が完了しました。';
-          window.location.href = getRoleHome(result.user && result.user.role);
-        } catch (error) {
-          console.error(error);
-          if (authMessage) authMessage.textContent = 'サーバー通信に失敗しました。';
-        }
-      });
-    }
-  }
-
-  function statCards(items) {
-    return `<div class="grid">${items.map((s) => `<div class="stat-card"><div class="stat-label">${s[0]}</div><div class="stat-value">${s[1]}</div></div>`).join('')}</div>`;
-  }
-
-  function renderHome() {
-    if (!qs('homeRoot')) return;
-
-    const role = data.currentUser && data.currentUser.role;
-    const roleLabel = getRoleLabel(role);
-    const homeRoleLabel = qs('homeRoleLabel');
-    if (homeRoleLabel) {
-      homeRoleLabel.textContent = `現在のロール: ${roleLabel}`;
-    }
-
-    qs('recentGame').innerHTML = data.games[0]
-      ? `<div class="list-item"><strong>${data.games[0].date}</strong> vs ${data.games[0].opponent}<div class="meta">${data.games[0].type || '公式戦'} / ${data.games[0].score}</div></div>`
-      : emptyMessage('試合データがまだありません。');
-
-    const primaryPlayer = data.players[0];
-    if (primaryPlayer) {
-      const personal = analysis.batting(primaryPlayer.batting || {});
-      qs('personalStats').innerHTML = statCards([
-        ['対象選手', primaryPlayer.name],
-        ['打率', fmt3(personal.avg)],
-        ['OPS', fmt3(personal.ops)],
-        ['打点', primaryPlayer.batting.rbi || 0],
-      ]);
-    } else {
-      qs('personalStats').innerHTML = emptyMessage('個人成績データがまだありません。');
-    }
-
-    if (data.players.length > 0) {
-      const team = analysis.team(data.players);
-      qs('teamStats').innerHTML = statCards([
-        ['チーム打率', fmt3(team.avg)],
-        ['チームOPS', fmt3(team.ops)],
-        ['チーム防御率', fmt3(team.era)],
-        ['総得点', team.totalRuns],
-      ]);
-    } else {
-      qs('teamStats').innerHTML = emptyMessage('チーム成績データがまだありません。');
-    }
-
-    const scorebookPhotos = qs('scorebookPhotos');
-    if (scorebookPhotos) {
-      scorebookPhotos.innerHTML = emptyMessage('スコアブック写真がまだありません。');
-    }
-
-    const coachComment = qs('coachComment');
-    if (coachComment) {
-      coachComment.innerHTML = emptyMessage('コメントがまだありません。');
-    }
-
-    const personalRanking = qs('personalRanking');
-    if (personalRanking) {
-      const ranking = data.players
-        .map((player) => ({
-          name: player.name,
-          avg: analysis.batting(player.batting || {}).avg,
-          rbi: Number(player.batting && player.batting.rbi) || 0,
-        }))
-        .sort((a, b) => b.avg - a.avg)
-        .slice(0, 5);
-
-      personalRanking.innerHTML = ranking.length
-        ? ranking.map((entry, index) => `
-          <div class="list-item">
-            <strong>${index + 1}位 ${entry.name}</strong>
-            <div class="meta">打率: ${fmt3(entry.avg)} / 打点: ${entry.rbi}</div>
-          </div>
-        `).join('')
-        : emptyMessage('ランキングデータがまだありません。');
-    }
-  }
-
-  function renderPlayerDetail() {
-    if (!qs('playerDetailRoot')) return;
-    if (data.players.length === 0) {
-      qs('playerName').textContent = '選手データがまだありません。';
-      qs('playerMeta').textContent = '';
-      qs('playerBatting').innerHTML = emptyMessage('打者成績データがまだありません。');
-      qs('playerPitching').innerHTML = emptyMessage('投手成績データがまだありません。');
-      qs('playerConditions').innerHTML = emptyMessage('コンディション履歴がまだありません。');
-      return;
-    }
-
-    const selected = Number(localStorage.getItem('selectedPlayerId')) || data.players[0].id;
-    const player = data.players.find((p) => p.id === selected) || data.players[0];
-    qs('playerName').textContent = `${player.name} #${player.number}`;
-    qs('playerMeta').textContent = `${player.pos} / ${player.throwsBats} / ${player.age}歳`;
-
-    const tabs = document.querySelectorAll('[data-tab-btn]');
-    const sections = document.querySelectorAll('[data-tab]');
-    function activate(name) {
-      tabs.forEach((t) => t.classList.toggle('active', t.dataset.tabBtn === name));
-      sections.forEach((s) => { s.style.display = s.dataset.tab === name ? 'block' : 'none'; });
-    }
-
-    const b = analysis.batting(player.batting);
-    qs('playerBatting').innerHTML = statCards([
-      ['打率', fmt3(b.avg)], ['出塁率', fmt3(b.obp)], ['長打率', fmt3(b.slg)], ['OPS', fmt3(b.ops)], ['安打', player.batting.hits], ['打点', player.batting.rbi],
-    ]);
-    const p = analysis.pitching(player.pitching);
-    qs('playerPitching').innerHTML = statCards([
-      ['防御率', fmt3(p.era)], ['WHIP', fmt3(p.whip)], ['奪三振', player.pitching.so || 0], ['被安打', player.pitching.h || 0],
-    ]);
-    qs('playerConditions').innerHTML = (player.conditions || []).length
-      ? player.conditions.map((c) => `<div class="list-item">${c.date} / 疲労:${c.fatigue} / 体調:${c.health} / 体重:${c.weight}kg</div>`).join('')
-      : emptyMessage('コンディション履歴がまだありません。');
-
-    tabs.forEach((t) => t.addEventListener('click', () => activate(t.dataset.tabBtn)));
-    activate('batting');
-  }
-
-  function renderGames() {
-    const root = qs('gamesList');
-    if (!root) return;
-
-    if (data.games.length === 0) {
-      root.innerHTML = emptyMessage('試合データがまだありません。');
-      return;
-    }
-
-    root.innerHTML = data.games.map((g) => `
-      <button class="list-item button-ghost game-item" data-id="${g.id}">
-        <div><strong>${g.date}</strong> vs ${g.opponent}</div>
-        <div class="meta">${g.type} / <span class="${g.result === '勝ち' ? 'result-win' : 'result-loss'}">${g.result}</span> / ${g.score}</div>
-      </button>
-    `).join('');
-    root.querySelectorAll('.game-item').forEach((b) => b.addEventListener('click', () => {
-      localStorage.setItem('selectedGameId', b.dataset.id);
-      window.location.href = 'game-detail.html';
-    }));
-  }
-
-  function renderGameDetail() {
-    if (!qs('gameDetailRoot')) return;
-    if (data.games.length === 0) {
-      qs('gameInfo').textContent = '試合データがまだありません。';
-      qs('battingRecords').innerHTML = emptyMessage('打席記録がまだありません。');
-      qs('pitchingRecords').innerHTML = emptyMessage('投球記録がまだありません。');
-      return;
-    }
-
-    const selected = Number(localStorage.getItem('selectedGameId')) || data.games[0].id;
-    const game = data.games.find((g) => g.id === selected) || data.games[0];
-    qs('gameInfo').textContent = `${game.date} ${game.type} vs ${game.opponent} (${game.result} ${game.score})`;
-    qs('battingRecords').innerHTML = game.battingRecords.length ? game.battingRecords.map((r) => `<div class="list-item">${r.batter} / ${r.result} / ${r.pitchType} / ${r.direction}</div>`).join('') : emptyMessage('打席記録がまだありません。');
-    qs('pitchingRecords').innerHTML = game.pitchingRecords.length ? game.pitchingRecords.map((r) => `<div class="list-item">${r.pitcher} ${r.inning}回 / ${r.pitches}球 / 失点${r.r}</div>`).join('') : emptyMessage('投球記録がまだありません。');
-    qs('goBattingInput').addEventListener('click', () => window.location.href = 'batting-input.html');
-    qs('goPitchingInput').addEventListener('click', () => window.location.href = 'pitching-input.html');
-  }
-
-  function bindSelectChips() {
-    document.querySelectorAll('.segmented').forEach((seg) => {
-      seg.addEventListener('click', (e) => {
-        const chip = e.target.closest('.chip');
-        if (!chip) return;
-        seg.querySelectorAll('.chip').forEach((c) => c.classList.remove('active'));
-        chip.classList.add('active');
-        const target = seg.dataset.target;
-        if (target && qs(target)) qs(target).value = chip.dataset.value || chip.textContent.trim();
-      });
-    });
-  }
-
-  function saveLocal(formId, key, msgId) {
-    const form = qs(formId);
-    if (!form) return;
-    form.addEventListener('submit', (e) => {
-      e.preventDefault();
-      const fd = new FormData(form);
-      const obj = Object.fromEntries(fd.entries());
-      const saved = JSON.parse(localStorage.getItem(key) || '[]');
-      saved.push({ ...obj, savedAt: new Date().toISOString() });
-      localStorage.setItem(key, JSON.stringify(saved));
-      qs(msgId).textContent = '仮保存しました（localStorage）';
-      form.reset();
-      form.querySelectorAll('.chip.active').forEach((c) => c.classList.remove('active'));
-    });
-  }
-
-  function fillSelect(id, values, placeholder) {
-    const sel = qs(id);
-    if (!sel) return;
-    const list = values || [];
-    if (list.length === 0) {
-      sel.innerHTML = `<option value="">${placeholder}</option>`;
-      sel.disabled = true;
-      return;
-    }
-    sel.innerHTML = list.map((v) => `<option value="${v}">${v}</option>`).join('');
-    sel.disabled = false;
-  }
-
-  function renderInputs() {
-    fillSelect('batterSelect', data.players.map((p) => p.name), '選手データがまだありません');
-    fillSelect('pitcherSelect', data.players.filter((p) => String(p.pos || '').includes('投手')).map((p) => p.name), '投手データがまだありません');
-    bindSelectChips();
-    saveLocal('battingForm', 'battingInputs', 'battingMessage');
-    saveLocal('pitchingForm', 'pitchingInputs', 'pitchingMessage');
-    saveLocal('conditionForm', 'conditionInputs', 'conditionMessage');
-  }
-
-  async function renderConditionPage() {
-    const root = qs('conditionRoot');
-    if (!root) return;
-
-    const user = data.currentUser || await fetchCurrentUser();
-    if (!user || user.role !== 'admin') {
-      const form = qs('conditionForm');
-      if (form) {
-        const playerNameInput = form.querySelector('input[name="playerName"]');
-        if (playerNameInput) playerNameInput.value = user && user.name ? user.name : '';
+    registerForm.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const formData = new FormData(registerForm);
+      if (formData.get('password') !== formData.get('passwordConfirm')) {
+        message.textContent = '確認用パスワードが一致しません。';
+        return;
       }
-      return;
-    }
-
-    const title = qs('conditionPageTitle');
-    if (title) title.textContent = '選手一覧（体調）';
-
-    let players = [];
-    try {
-      const res = await fetch('/api/team-players', { credentials: 'include' });
-      if (res.ok) {
-        const result = await res.json();
-        players = Array.isArray(result.players) ? result.players : [];
-      }
-    } catch (error) {
-      console.error(error);
-    }
-
-    const inputLogs = JSON.parse(localStorage.getItem('conditionInputs') || '[]');
-    const latestByPlayer = new Map();
-    inputLogs.forEach((entry) => {
-      const playerName = String(entry.playerName || '').trim();
-      if (!playerName) return;
-      const current = latestByPlayer.get(playerName);
-      const candidateTime = new Date(entry.savedAt || entry.date || 0).getTime();
-      const currentTime = current ? new Date(current.savedAt || current.date || 0).getTime() : 0;
-      if (!current || candidateTime >= currentTime) {
-        latestByPlayer.set(playerName, entry);
+      message.textContent = '登録中です...';
+      try {
+        const payload = await api('/api/register', {
+          method: 'POST',
+          body: JSON.stringify({
+            name: formData.get('name'),
+            email: formData.get('email'),
+            password: formData.get('password'),
+            role: formData.get('role'),
+          }),
+        });
+        state.user = payload.user;
+        window.location.href = 'index.html';
+      } catch (error) {
+        message.textContent = error.message;
       }
     });
-
-    const roster = players.map((player) => {
-      const latest = latestByPlayer.get(player.name) || null;
-      return {
-        name: player.name,
-        status: getConditionStatus(latest && latest.health),
-      };
-    });
-
-    root.innerHTML = `
-      <section class="card">
-        <h2>選手の体調ステータス</h2>
-        <div class="small">監督は閲覧のみ可能です。入力・編集はできません。</div>
-        <div id="coachConditionList" class="coach-condition-list"></div>
-      </section>
-    `;
-
-    const listRoot = qs('coachConditionList');
-    if (!listRoot) return;
-
-    if (roster.length === 0) {
-      listRoot.innerHTML = emptyMessage('選手データがまだありません。');
-      return;
-    }
-
-    listRoot.innerHTML = roster.map((player) => `
-      <div class="coach-condition-item">
-        <div class="coach-player-name">${escapeHtml(player.name)}</div>
-        <div class="condition-status-pill ${player.status.className}">${player.status.label}</div>
-      </div>
-    `).join('');
-  }
-
-  function renderBatterAnalysis() {
-    if (!qs('batterAnalysisRoot')) return;
-    if (data.players.length === 0) {
-      qs('batterStats').innerHTML = emptyMessage('打者分析データがまだありません。');
-      qs('batterTrend').innerHTML = emptyMessage('推移データがまだありません。');
-      return;
-    }
-    const b = analysis.batting(data.players[0].batting);
-    const s = data.players[0].batting;
-    qs('batterStats').innerHTML = statCards([
-      ['打率', fmt3(b.avg)], ['出塁率', fmt3(b.obp)], ['長打率', fmt3(b.slg)], ['OPS', fmt3(b.ops)],
-      ['打席', s.pa], ['打数', s.ab], ['安打', s.hits], ['二塁打', s.doubles], ['三塁打', s.triples], ['本塁打', s.hr], ['打点', s.rbi], ['三振', s.so], ['四球', s.bb], ['死球', s.hbp], ['犠打', s.sh], ['犠飛', s.sf],
-    ]);
-    qs('batterTrend').innerHTML = data.monthlyTrend.length ? trendTable(data.monthlyTrend, ['month', 'avg', 'obp', 'slg']) : emptyMessage('推移データがまだありません。');
-  }
-
-  function renderPitcherAnalysis() {
-    if (!qs('pitcherAnalysisRoot')) return;
-    const pitcher = data.players.find((p) => String(p.pos || '').includes('投手'));
-    if (!pitcher) {
-      qs('pitcherStats').innerHTML = emptyMessage('投手分析データがまだありません。');
-      qs('velocityTrend').innerHTML = emptyMessage('球速推移データがまだありません。');
-      return;
-    }
-
-    const pRaw = pitcher.pitching;
-    const p = analysis.pitching(pRaw);
-    qs('pitcherStats').innerHTML = statCards([
-      ['防御率', fmt3(p.era)], ['投球回', pRaw.ip], ['奪三振', pRaw.so], ['四球', pRaw.bb], ['被安打', pRaw.h], ['被本塁打', pRaw.hr || 0], ['失点', pRaw.runs || 0], ['自責点', pRaw.er], ['WHIP', fmt3(p.whip)],
-    ]);
-    qs('velocityTrend').innerHTML = data.velocityTrend.length ? trendTable(data.velocityTrend, ['game', 'max', 'avg']) : emptyMessage('球速推移データがまだありません。');
-  }
-
-  function renderTeamAnalysis() {
-    if (!qs('teamAnalysisRoot')) return;
-    if (data.players.length === 0) {
-      qs('teamAnalysisStats').innerHTML = emptyMessage('チーム分析データがまだありません。');
-      return;
-    }
-    const t = analysis.team(data.players);
-    qs('teamAnalysisStats').innerHTML = statCards([
-      ['チーム打率', fmt3(t.avg)], ['チーム出塁率', fmt3(t.obp)], ['チーム長打率', fmt3(t.slg)], ['チームOPS', fmt3(t.ops)], ['総得点', t.totalRuns], ['三振率', fmt3(t.soRate)], ['四球率', fmt3(t.bbRate)], ['チーム防御率', fmt3(t.era)], ['総失点', t.totalRuns], ['総自責点', t.totalEr], ['奪三振率', fmt3(t.kRate)], ['被安打率', fmt3(t.hRate)],
-    ]);
-  }
-
-  function trendTable(rows, keys) {
-    return `<div class="table-wrap"><table class="table"><thead><tr>${keys.map((k) => `<th>${k}</th>`).join('')}</tr></thead><tbody>${rows.map((r) => `<tr>${keys.map((k) => `<td>${r[k]}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
-  }
-
-  async function enforceRolePageAccess() {
-    const requiredRole = document.body.dataset.rolePage;
-    if (!requiredRole) return true;
-
-    const user = await fetchCurrentUser();
-    if (!user) {
-      window.location.href = 'login.html';
-      return false;
-    }
-
-    if (user.role !== requiredRole) {
-      window.location.href = getRoleHome(user.role);
-      return false;
-    }
-
-    return true;
   }
 
   async function enforceSessionAccess() {
-    const isPublicLoginPage = isLoginPage();
-    const user = await fetchCurrentUser();
-
-    if (isPublicLoginPage) {
-      if (user) {
-        window.location.href = getRoleHome(user.role);
-        return false;
-      }
+    if (window.location.pathname.endsWith('login.html') || window.location.pathname === '/login.html') {
+      const user = await fetchCurrentUser();
+      if (user) window.location.href = 'index.html';
       return true;
     }
-
+    const user = await fetchCurrentUser();
     if (!user) {
       window.location.href = 'login.html';
       return false;
     }
-
+    const requiredRole = document.body.dataset.rolePage;
+    if (requiredRole && user.role !== requiredRole) {
+      window.location.href = 'index.html';
+      return false;
+    }
     return true;
   }
 
-  async function renderSettings() {
-    if (!qs('settingsRoot')) return;
-
-    const user = await fetchCurrentUser();
-    if (!user) {
-      window.location.href = 'login.html';
-      return;
-    }
-
-    qs('profileName').textContent = user && user.name ? user.name : '未ログイン';
-    qs('profileRole').textContent = getRoleLabel(user && user.role);
-    qs('profileTeam').textContent = '-';
-
-    bindSettingsPreviewForms();
-    bindAccountDelete();
-
-    qs('logoutBtn').addEventListener('click', async () => {
-      try {
-        await fetch('/api/logout', { method: 'POST', credentials: 'include' });
-      } catch (error) {
-        console.error(error);
-      }
-      window.location.href = 'login.html';
-    });
-  }
-
-
-  function bindSettingsPreviewForms() {
-    const profileForm = qs('profileForm');
-    const emailForm = qs('emailForm');
-    const passwordForm = qs('passwordForm');
-
-    if (profileForm) {
-      profileForm.addEventListener('submit', (e) => {
-        e.preventDefault();
-        const fd = new FormData(profileForm);
-        const displayName = String(fd.get('displayName') || '').trim();
-        const message = qs('profileMessage');
-        if (message) {
-          message.className = 'small success-text';
-          message.textContent = displayName
-            ? `プロフィール変更内容を確認しました: ${displayName}`
-            : 'プロフィール変更内容を確認しました。';
-        }
-      });
-    }
-
-    if (emailForm) {
-      emailForm.addEventListener('submit', (e) => {
-        e.preventDefault();
-        const fd = new FormData(emailForm);
-        const email = String(fd.get('newEmail') || '').trim();
-        const message = qs('emailMessage');
-        if (message) {
-          message.className = email ? 'small success-text' : 'small error-text';
-          message.textContent = email
-            ? `メールアドレス変更リクエストを受け付けました: ${email}`
-            : 'メールアドレスを入力してください。';
-        }
-      });
-    }
-
-    if (passwordForm) {
-      passwordForm.addEventListener('submit', (e) => {
-        e.preventDefault();
-        const fd = new FormData(passwordForm);
-        const currentPassword = String(fd.get('currentPassword') || '');
-        const newPassword = String(fd.get('newPassword') || '');
-        const message = qs('passwordMessage');
-        if (message) {
-          if (!currentPassword || newPassword.length < 8) {
-            message.className = 'small error-text';
-            message.textContent = '現在のパスワードと8文字以上の新しいパスワードを入力してください。';
-            return;
-          }
-          message.className = 'small success-text';
-          message.textContent = 'パスワード変更内容を確認しました。';
-        }
-      });
-    }
-  }
-
-  function bindAccountDelete() {
-    const deleteMessage = qs('accountDeleteMessage');
-    const deleteConfirmTextInput = qs('deleteConfirmText');
-    const deletePasswordInput = qs('deleteAccountPassword');
-    const deleteAccountBtn = qs('deleteAccountBtn');
-
-    if (deleteAccountBtn) {
-      deleteAccountBtn.addEventListener('click', async () => {
-        if (!deleteConfirmTextInput || !deletePasswordInput || !deleteMessage) return;
-
-        deleteMessage.className = 'small';
-        deleteMessage.textContent = '';
-
-        const confirmationText = String(deleteConfirmTextInput.value || '').trim();
-        const password = String(deletePasswordInput.value || '');
-
-        if (!confirmationText || !password) {
-          deleteMessage.classList.add('error-text');
-          deleteMessage.textContent = '確認テキストとパスワードを入力してください。';
-          return;
-        }
-
-        const ok = window.confirm('アカウントを削除すると復元できません。本当に削除しますか？');
-        if (!ok) return;
-
-        deleteAccountBtn.disabled = true;
-        try {
-          const res = await fetch('/api/account', {
-            method: 'DELETE',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
-            body: JSON.stringify({ confirmationText, password }),
-          });
-
-          const result = await res.json();
-
-          if (!res.ok) {
-            deleteMessage.classList.add('error-text');
-            deleteMessage.textContent = result.message || 'アカウント削除に失敗しました。';
-            return;
-          }
-
-          deleteMessage.classList.add('success-text');
-          deleteMessage.textContent = result.message || 'アカウントを削除しました。ログイン画面へ移動します。';
-          setTimeout(() => {
-            window.location.href = 'login.html';
-          }, 800);
-        } catch (error) {
-          console.error(error);
-          deleteMessage.classList.add('error-text');
-          deleteMessage.textContent = 'サーバー通信に失敗しました。';
-        } finally {
-          deleteAccountBtn.disabled = false;
-        }
-      });
-    }
-  }
-
-  function renderRoleDashboard() {
-    if (!document.body.dataset.rolePage) return;
-    bindAccountDelete();
-  }
-
   document.addEventListener('DOMContentLoaded', async () => {
-    const canViewPage = await enforceSessionAccess();
-    if (!canViewPage) return;
-
-    const canViewRolePage = await enforceRolePageAccess();
-    if (!canViewRolePage) return;
-
+    const ok = await enforceSessionAccess();
+    if (!ok) return;
     setupNav();
     bindLogin();
     await renderSettings();
-    renderHome();
-    renderPlayerDetail();
-    renderGames();
-    renderGameDetail();
-    renderInputs();
-    await renderConditionPage();
-    renderBatterAnalysis();
-    renderPitcherAnalysis();
-    renderTeamAnalysis();
-    renderRoleDashboard();
+    await renderHome();
+    await renderGames();
+    await renderGameDetail();
+    await renderRoleWorkspace();
   });
 })();
