@@ -1,5 +1,5 @@
 CREATE TABLE IF NOT EXISTS users (
-  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  id INT PRIMARY KEY AUTO_INCREMENT,
   name VARCHAR(255) NOT NULL,
   email VARCHAR(255) NOT NULL,
   role ENUM('coach', 'manager', 'player') NOT NULL DEFAULT 'player',
@@ -10,28 +10,28 @@ CREATE TABLE IF NOT EXISTS users (
 );
 
 CREATE TABLE IF NOT EXISTS games (
-  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  id INT PRIMARY KEY AUTO_INCREMENT,
   game_date DATE NOT NULL,
   opponent VARCHAR(255) NOT NULL,
   location VARCHAR(255) NULL,
   team_score INT NOT NULL DEFAULT 0,
   opponent_score INT NOT NULL DEFAULT 0,
   result ENUM('win', 'loss', 'draw') NOT NULL,
-  created_by BIGINT NULL,
+  created_by INT NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   KEY idx_games_game_date (game_date),
   CONSTRAINT fk_games_created_by FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
 );
 
 CREATE TABLE IF NOT EXISTS scorebook_uploads (
-  id BIGINT PRIMARY KEY AUTO_INCREMENT,
-  game_id BIGINT NOT NULL,
+  id INT PRIMARY KEY AUTO_INCREMENT,
+  game_id INT NOT NULL,
   file_name VARCHAR(255) NOT NULL,
   image_data LONGTEXT NOT NULL,
   extracted_text LONGTEXT NULL,
   parse_status ENUM('parsed', 'needs_manual_review') NOT NULL DEFAULT 'needs_manual_review',
   candidate_payload JSON NOT NULL,
-  created_by BIGINT NULL,
+  created_by INT NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   KEY idx_scorebook_uploads_game_id (game_id),
   CONSTRAINT fk_scorebooks_game FOREIGN KEY (game_id) REFERENCES games(id) ON DELETE CASCADE,
@@ -39,13 +39,13 @@ CREATE TABLE IF NOT EXISTS scorebook_uploads (
 );
 
 CREATE TABLE IF NOT EXISTS stat_entries (
-  id BIGINT PRIMARY KEY AUTO_INCREMENT,
-  game_id BIGINT NOT NULL,
-  player_id BIGINT NOT NULL,
+  id INT PRIMARY KEY AUTO_INCREMENT,
+  game_id INT NOT NULL,
+  player_id INT NOT NULL,
   category ENUM('batting', 'pitching') NOT NULL,
   source_type ENUM('manual', 'scorebook') NOT NULL DEFAULT 'manual',
-  scorebook_upload_id BIGINT NULL,
-  created_by BIGINT NULL,
+  scorebook_upload_id INT NULL,
+  created_by INT NULL,
   notes TEXT NULL,
   raw_payload JSON NOT NULL,
   derived_payload JSON NOT NULL,
