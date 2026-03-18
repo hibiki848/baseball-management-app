@@ -3,25 +3,21 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>連絡メモ | 野球マネジメントアプリ</title>
+  <title>成績入力 | 野球マネジメントアプリ</title>
   <link rel="stylesheet" href="css/style.css" />
 </head>
 <body data-page="condition">
   <div class="app">
-    <header><h1>連絡メモ</h1></header>
-    <main id="notesRoot">
-      <div class="card">
-        <h2>運用メモ</h2>
-        <p class="small">成績入力はホームまたはロール別入力ページから行ってください。こちらは簡易連絡メモ用の予備ページです。</p>
-      </div>
-    </main>
+    <header><h1>成績入力</h1></header>
+    <main id="inputWorkspaceRoot"></main>
     <nav class="bottom-nav">
       <a href="index.html" data-page="home">ホーム</a>
       <a href="games.html" data-page="games">試合</a>
-      <a href="condition.html" data-page="condition">メモ</a>
+      <a href="condition.html" data-page="condition">入力</a>
       <a href="settings.html" data-page="settings">設定</a>
     </nav>
   </div>
+  <script src="js/analysis.js"></script>
   <script src="js/roles.js"></script>
   <script src="js/main.js"></script>
 </body>
