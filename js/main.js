@@ -116,7 +116,7 @@
   }
 
   function getRoleLabel(role) {
-    return { admin: '監督', manager: 'マネージャー', player: '選手' }[role] || role;
+    return AppRoles.getRoleLabel(role);
   }
 
   function setupNav() {
@@ -346,7 +346,7 @@
   }
 
   function buildRoleHero(user) {
-    const actionLink = user.role === 'manager' ? 'manager.html' : user.role === 'player' ? 'player.html' : 'coach.html';
+    const actionLink = AppRoles.getRolePage(user.role);
     const actionLabel = user.role === 'manager' ? '入力専用ページ' : user.role === 'player' ? '自分の入力ページ' : '監督ビュー';
     return `
       <section class="card role-hero">
@@ -652,7 +652,7 @@
       sections.push(buildScorebookCard());
       sections.push(buildPlayerSummaryTable(playerSummaries));
     }
-    if (user.role === 'admin') {
+    if (user.role === 'coach') {
       sections.push(buildPlayerSummaryTable(playerSummaries));
     }
     sections.push(buildRankingCard(rankings));
@@ -697,7 +697,7 @@
     await refreshData();
     const user = state.user;
     root.innerHTML = `
-      ${['admin', 'manager'].includes(user.role) ? `
+      ${['coach', 'manager'].includes(user.role) ? `
         <section class="card">
           <h2>試合登録</h2>
           <form id="gameForm">

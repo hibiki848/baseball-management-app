@@ -13,12 +13,9 @@ const dataFile = path.join(dataDir, 'app-data.json');
 const isRailway = Boolean(process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_STATIC_URL);
 const useSecureCookie = process.env.NODE_ENV === 'production' || isRailway;
 
-const ALLOWED_ROLES = new Set(['admin', 'manager', 'player']);
-const ROLE_LABELS = {
-  admin: '監督',
-  manager: 'マネージャー',
-  player: '選手',
-};
+const AppRoles = require('./js/roles');
+const ALLOWED_ROLES = new Set(AppRoles.ALLOWED_ROLES);
+const ROLE_LABELS = AppRoles.ROLE_LABELS;
 const PLAYER_META_DEFAULTS = {
   bats: '右',
   throws: '右',
@@ -581,7 +578,7 @@ app.get('/api/games', requireLogin, (req, res) => {
   res.status(200).json({ games });
 });
 
-app.post('/api/games', requireRole(['admin', 'manager']), async (req, res) => {
+app.post('/api/games', requireRole(['coach', 'manager']), async (req, res) => {
   const date = String(req.body.date || '').trim();
   const opponent = String(req.body.opponent || '').trim();
   const location = String(req.body.location || '').trim();
