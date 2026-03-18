@@ -201,10 +201,6 @@
               <option value="pitching">個人成績（投手）</option>
             </select>
           </div>
-          <div class="form-row">
-            <label for="manualNotes">メモ</label>
-            <textarea id="manualNotes" name="notes" placeholder="打順や登板状況など"></textarea>
-          </div>
           <div id="manualBattingFields" class="field-grid">${buildManualFields(battingFields, 'batting')}</div>
           <div id="manualPitchingFields" class="field-grid hidden">${buildManualFields(pitchingFields, 'pitching')}</div>
           <div class="actions single-action">
@@ -222,7 +218,7 @@
     return `
       <section class="card">
         <h2>スコアブック写真からの入力</h2>
-        <p class="small">写真をアップロードし、必要に応じてスマートフォンOCRの結果や補足メモを貼り付けると候補を作成できます。候補は保存前に必ず確認・修正してください。</p>
+        <p class="small">写真をアップロードし、必要に応じてスマートフォンOCRの結果や補足テキストを貼り付けると候補を作成できます。候補は保存前に必ず確認・修正してください。</p>
         ${state.games.length === 0 ? '<div class="notice">試合登録後に利用できます。</div>' : ''}
         <form id="scorebookForm">
           <div class="form-row">
@@ -346,7 +342,7 @@
   }
 
   function buildRoleHero(user) {
-    const actionLink = AppRoles.getRolePage(user.role);
+    const actionLink = ['manager', 'player'].includes(user.role) ? 'condition.html' : AppRoles.getRolePage(user.role);
     const actionLabel = user.role === 'manager' ? '入力専用ページ' : user.role === 'player' ? '自分の入力ページ' : '監督ビュー';
     return `
       <section class="card role-hero">
@@ -376,7 +372,6 @@
     const category = form.querySelector('[name="category"]')?.value;
     resetFields(form, battingFields);
     resetFields(form, pitchingFields);
-    form.querySelector('[name="notes"]').value = entry ? entry.notes || '' : '';
     if (!entry) return;
     const fields = category === 'pitching' ? pitchingFields : battingFields;
     fields.forEach(([key]) => {
@@ -490,7 +485,6 @@
         gameId: number(form.gameId.value),
         playerId: number(form.playerId.value),
         category,
-        notes: form.notes.value,
         sourceType: 'manual',
         raw: collectRaw(form, category),
       };
@@ -523,10 +517,6 @@
               <input type="number" step="0.01" min="0" name="raw.${key}" value="${number(candidate.raw[key])}" />
             </div>
           `).join('')}
-        </div>
-        <div class="form-row compact-top">
-          <label>メモ</label>
-          <textarea name="notes">スコアブック写真から作成した候補を確認済み</textarea>
         </div>
         <button class="button-primary" type="submit">この候補を保存</button>
       </form>
@@ -561,7 +551,6 @@
           gameId: number(form.dataset.gameId),
           playerId: number(form.dataset.playerId),
           category,
-          notes: form.querySelector('[name="notes"]').value,
           sourceType: 'scorebook',
           scorebookUploadId: number(form.dataset.uploadId),
           raw,
@@ -644,11 +633,7 @@
     const sections = [buildRoleHero(user), buildRecentGameCard(recentGame)];
     if (user.role !== 'manager') sections.push(buildPersonalSummaryCard(personalSummary, user));
     sections.push(buildTeamSummaryCard(teamSummary));
-    if (user.role === 'manager' || user.role === 'player') {
-      sections.push(buildManualInputCard(user));
-    }
     if (user.role === 'manager') {
-      sections.push(buildScorebookCard());
       sections.push(buildPlayerSummaryTable(playerSummaries));
     }
     if (user.role === 'coach') {
@@ -673,12 +658,27 @@
     }
     const blocks = [buildRoleHero(user)];
     if (user.role === 'manager') {
-      blocks.push(buildManualInputCard(user, { title: '全選手の成績入力' }));
-      blocks.push(buildScorebookCard());
+      blocks.push(`
+        <section class="card">
+          <h2>入力ページのご案内</h2>
+          <p class="small">成績入力は専用ページへ移動しました。下のボタンから入力画面を開いてください。</p>
+          <div class="actions single-action">
+            <a class="button button-primary" href="condition.html">入力ページを開く</a>
+          </div>
+        </section>
+      `);
       blocks.push(buildPlayerSummaryTable(state.dashboard.playerSummaries));
     } else if (user.role === 'player') {
       blocks.push(buildPersonalSummaryCard(state.dashboard.personalSummary, user));
-      blocks.push(buildManualInputCard(user, { title: '自分の成績を入力' }));
+      blocks.push(`
+        <section class="card">
+          <h2>入力ページのご案内</h2>
+          <p class="small">自分の成績入力は専用ページへ移動しました。下のボタンから入力画面を開いてください。</p>
+          <div class="actions single-action">
+            <a class="button button-primary" href="condition.html">入力ページを開く</a>
+          </div>
+        </section>
+      `);
     } else {
       blocks.push(buildTeamSummaryCard(state.dashboard.teamSummary));
       blocks.push(buildPlayerSummaryTable(state.dashboard.playerSummaries));
@@ -806,6 +806,50 @@
     } catch (error) {
       root.innerHTML = `<section class="card"><div class="small error-text">${escapeHtml(error.message)}</div></section>`;
     }
+  }
+
+  async function renderInputWorkspace() {
+    const root = qs('inputWorkspaceRoot');
+    if (!root) return;
+    await refreshData();
+    const user = state.user;
+
+    if (user.role === 'coach') {
+      root.innerHTML = `
+        <section class="card">
+          <h2>入力権限がありません</h2>
+          <p class="small">監督アカウントでは成績入力を行えません。ホームまたは確認画面から集計結果をご確認ください。</p>
+          <div class="actions single-action">
+            <a class="button button-secondary" href="index.html">ホームへ戻る</a>
+          </div>
+        </section>
+      `;
+      return;
+    }
+
+    const sections = [
+      `
+        <section class="card role-hero">
+          <div class="hero-kicker">${escapeHtml(getRoleLabel(user.role))}</div>
+          <h2>${user.role === 'manager' ? '試合ごとの成績を入力' : '自分の成績を入力'}</h2>
+          <p class="small">この画面では入力フォームのみを表示しています。保存後はホームの集計へ反映されます。</p>
+          <div class="actions">
+            <a class="button button-secondary" href="index.html">ホームへ戻る</a>
+            <a class="button button-secondary" href="games.html">試合一覧へ</a>
+          </div>
+        </section>
+      `,
+      buildManualInputCard(user, { title: user.role === 'manager' ? '全選手の成績入力' : '自分の成績を入力' }),
+    ];
+
+    if (user.role === 'manager') {
+      sections.push(buildScorebookCard());
+    }
+
+    root.innerHTML = sections.join('');
+    bindManualForm();
+    bindScorebookForm();
+    if (state.scorebookUpload) renderScorebookPreview(state.scorebookUpload);
   }
 
   async function renderSettings() {
@@ -962,6 +1006,7 @@
     await renderHome();
     await renderGames();
     await renderGameDetail();
+    await renderInputWorkspace();
     await renderRoleWorkspace();
   });
 })();
