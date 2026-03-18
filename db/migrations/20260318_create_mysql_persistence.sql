@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS games (
   game_date DATE NOT NULL,
   opponent VARCHAR(255) NOT NULL,
   location VARCHAR(255) NULL,
+  game_type ENUM('official', 'practice', 'intrasquad') NOT NULL DEFAULT 'official',
   team_score INT NOT NULL DEFAULT 0,
   opponent_score INT NOT NULL DEFAULT 0,
   result ENUM('win', 'loss', 'draw') NOT NULL,

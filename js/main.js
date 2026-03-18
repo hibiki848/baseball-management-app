@@ -64,6 +64,16 @@
     ['offspeedOpposite', '緩球:逆方向'],
   ];
 
+  const gameTypeLabels = {
+    official: '公式戦',
+    practice: '練習試合',
+    intrasquad: '紅白戦',
+  };
+
+  function getGameTypeLabel(gameType) {
+    return gameTypeLabels[gameType] || '未設定';
+  }
+
   function qs(id) {
     return document.getElementById(id);
   }
@@ -178,7 +188,7 @@
             <select id="manualPlayerId" name="playerId" ${disabled}>${playerOptions}</select>
           </div>
         `;
-    const gameOptions = games.map((game) => `<option value="${game.id}">${escapeHtml(`${game.date} vs ${game.opponent}`)}</option>`).join('');
+    const gameOptions = games.map((game) => `<option value="${game.id}">${escapeHtml(`${game.date} [${getGameTypeLabel(game.gameType)}] vs ${game.opponent}`)}</option>`).join('');
     const hint = user.role === 'player'
       ? '自分の成績のみ入力できます。'
       : 'マネージャーは全選手分の成績を試合単位で登録できます。';
@@ -214,7 +224,7 @@
   }
 
   function buildScorebookCard() {
-    const gameOptions = state.games.map((game) => `<option value="${game.id}">${escapeHtml(`${game.date} vs ${game.opponent}`)}</option>`).join('');
+    const gameOptions = state.games.map((game) => `<option value="${game.id}">${escapeHtml(`${game.date} [${getGameTypeLabel(game.gameType)}] vs ${game.opponent}`)}</option>`).join('');
     return `
       <section class="card">
         <h2>スコアブック写真からの入力</h2>
@@ -252,6 +262,7 @@
         <h2>直近試合結果</h2>
         <div class="list-item">
           <strong>${escapeHtml(`${recentGame.date} vs ${recentGame.opponent}`)}</strong>
+          <div class="meta">試合種別: ${escapeHtml(getGameTypeLabel(recentGame.gameType))}</div>
           <div class="meta">${escapeHtml(recentGame.location || '会場未設定')}</div>
           <div class="score-line"><span class="score-badge">${recentGame.teamScore} - ${recentGame.opponentScore}</span> <span class="${resultClass}">${resultLabel}</span></div>
           <div class="meta">打者入力: ${recentGame.battingPlayerCount}名 / 投手入力: ${recentGame.pitchingPlayerCount}名 / スコアブック: ${recentGame.scorebookCount}件</div>
@@ -703,6 +714,7 @@
             <div class="form-row"><label for="gameDate">試合日</label><input id="gameDate" name="date" type="date" required /></div>
             <div class="form-row"><label for="gameOpponent">対戦相手</label><input id="gameOpponent" name="opponent" type="text" required placeholder="○○高校" /></div>
             <div class="form-row"><label for="gameLocation">会場</label><input id="gameLocation" name="location" type="text" placeholder="○○球場" /></div>
+            <div class="form-row"><label for="gameType">試合種別</label><select id="gameType" name="gameType" required><option value="" selected disabled>選択してください</option><option value="official">公式戦</option><option value="practice">練習試合</option><option value="intrasquad">紅白戦</option></select></div>
             <div class="inline-fields">
               <div class="form-row"><label for="gameTeamScore">自チーム得点</label><input id="gameTeamScore" name="teamScore" type="number" min="0" value="0" /></div>
               <div class="form-row"><label for="gameOpponentScore">相手得点</label><input id="gameOpponentScore" name="opponentScore" type="number" min="0" value="0" /></div>
@@ -717,6 +729,7 @@
         ${state.games.length === 0 ? '<div class="small">試合がまだ登録されていません。</div>' : state.games.map((game) => `
           <div class="list-item">
             <strong>${escapeHtml(`${game.date} vs ${game.opponent}`)}</strong>
+            <div class="meta">試合種別: ${escapeHtml(getGameTypeLabel(game.gameType))}</div>
             <div class="meta">${escapeHtml(game.location || '会場未設定')} / ${game.teamScore}-${game.opponentScore}</div>
             <div class="meta">打者入力 ${game.battingPlayerCount}名 / 投手入力 ${game.pitchingPlayerCount}名 / スコアブック ${game.scorebookCount}件</div>
             <a class="inline-link" href="game-detail.html?gameId=${game.id}">試合詳細へ</a>
@@ -739,6 +752,7 @@
               date: form.date.value,
               opponent: form.opponent.value,
               location: form.location.value,
+              gameType: form.gameType.value,
               teamScore: number(form.teamScore.value),
               opponentScore: number(form.opponentScore.value),
             }),
@@ -770,6 +784,7 @@
       root.innerHTML = `
         <section class="card">
           <h2>${escapeHtml(`${payload.game.date} vs ${payload.game.opponent}`)}</h2>
+          <div class="small">試合種別: ${escapeHtml(getGameTypeLabel(payload.game.gameType))}</div>
           <div class="small">${escapeHtml(payload.game.location || '会場未設定')} / ${payload.game.teamScore}-${payload.game.opponentScore}</div>
         </section>
         <section class="card">

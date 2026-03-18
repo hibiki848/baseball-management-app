@@ -35,6 +35,18 @@ const PLAYER_META_DEFAULTS = {
   throws: '右',
   position: '未設定',
 };
+const GAME_TYPE_LABELS = {
+  official: '公式戦',
+  practice: '練習試合',
+  intrasquad: '紅白戦',
+};
+const ALLOWED_GAME_TYPES = new Set(Object.keys(GAME_TYPE_LABELS));
+
+function normalizeGameType(value) {
+  const normalized = String(value || '').trim();
+  return ALLOWED_GAME_TYPES.has(normalized) ? normalized : '';
+}
+
 
 app.set('trust proxy', 1);
 app.use(express.json({ limit: '12mb' }));
@@ -328,6 +340,7 @@ function buildGameSummary(game, entries, uploads) {
   const pitchingPlayerCount = new Set(entries.filter((entry) => entry.gameId === game.id && entry.category === 'pitching').map((entry) => entry.playerId)).size;
   return {
     ...game,
+    gameTypeLabel: GAME_TYPE_LABELS[game.gameType] || game.gameType,
     battingPlayerCount,
     pitchingPlayerCount,
     scorebookCount: uploads.filter((item) => item.gameId === game.id).length,
@@ -540,16 +553,21 @@ app.post('/api/games', requireRole(['coach', 'manager']), async (req, res) => {
   const date = String(req.body.date || '').trim();
   const opponent = String(req.body.opponent || '').trim();
   const location = String(req.body.location || '').trim();
+  const gameType = normalizeGameType(req.body.gameType);
   const teamScore = parseNumber(req.body.teamScore);
   const opponentScore = parseNumber(req.body.opponentScore);
   if (!date || !opponent) {
     return res.status(400).json({ message: '試合日と対戦相手は必須です。' });
+  }
+  if (!gameType) {
+    return res.status(400).json({ message: '試合種別を選択してください。' });
   }
   const result = teamScore > opponentScore ? 'win' : teamScore < opponentScore ? 'loss' : 'draw';
   const game = await createGame({
     date,
     opponent,
     location,
+    gameType,
     teamScore,
     opponentScore,
     result,

@@ -3,7 +3,11 @@ const path = require('path');
 const mysql = require('mysql2/promise');
 const session = require('express-session');
 
-const schemaPath = path.join(__dirname, 'migrations', '20260318_create_mysql_persistence.sql');
+const migrationsDir = path.join(__dirname, 'migrations');
+const requiredMigrationFiles = [
+  '20260318_create_mysql_persistence.sql',
+  '20260318_add_game_type_to_games.sql',
+];
 
 function buildPoolOptions() {
   const connectionUrl = process.env.DATABASE_URL || process.env.MYSQL_URL || process.env.MYSQL_PUBLIC_URL || '';
@@ -151,6 +155,7 @@ function mapGame(row) {
     date: normalizeDate(row.game_date),
     opponent: row.opponent,
     location: row.location || '',
+    gameType: row.game_type,
     teamScore: Number(row.team_score),
     opponentScore: Number(row.opponent_score),
     result: row.result,
@@ -196,8 +201,10 @@ const pool = mysql.createPool(buildPoolOptions());
 const sessionStore = new MySQLSessionStore(pool);
 
 async function initDatabase() {
-  const schemaSql = await fs.readFile(schemaPath, 'utf8');
-  await pool.query(schemaSql);
+  for (const file of requiredMigrationFiles) {
+    const sql = await fs.readFile(path.join(migrationsDir, file), 'utf8');
+    await pool.query(sql);
+  }
 }
 
 async function getCounts() {
@@ -251,11 +258,11 @@ async function findGameById(id) {
   return mapGame(rows[0]);
 }
 
-async function createGame({ date, opponent, location, teamScore, opponentScore, result, createdBy }) {
+async function createGame({ date, opponent, location, gameType, teamScore, opponentScore, result, createdBy }) {
   const [resultInfo] = await pool.query(
-    `INSERT INTO games (game_date, opponent, location, team_score, opponent_score, result, created_by)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    [date, opponent, location || null, teamScore, opponentScore, result, createdBy],
+    `INSERT INTO games (game_date, opponent, location, game_type, team_score, opponent_score, result, created_by)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [date, opponent, location || null, gameType, teamScore, opponentScore, result, createdBy],
   );
   return findGameById(resultInfo.insertId);
 }
