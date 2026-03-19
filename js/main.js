@@ -11,6 +11,7 @@
     activeBig3Tab: 'benchPress',
     diarySortOrder: 'desc',
     diarySearchQuery: '',
+    diarySearchComposing: false,
     diarySelectedDate: '',
     diaryCalendarMonth: new Date().toISOString().slice(0, 7),
     diaryEditingNoteId: null,
@@ -183,6 +184,47 @@
       map.set(key, (map.get(key) || 0) + 1);
       return map;
     }, new Map());
+  }
+
+  function bindDiaryNoteListActions(container) {
+    if (!container) return;
+
+    container.querySelectorAll('[data-diary-edit]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const noteId = Number(button.dataset.diaryEdit);
+        const targetNote = state.diaryNotes.find((note) => note.id === noteId);
+        if (!targetNote) return;
+        state.diaryEditingNoteId = noteId;
+        state.diarySelectedDate = targetNote.entryDate;
+        state.diaryCalendarMonth = targetNote.entryDate.slice(0, 7);
+        renderDiary({ reload: false }).then(() => {
+          qs('diaryBody')?.focus();
+        });
+      });
+    });
+
+    container.querySelectorAll('[data-diary-delete]').forEach((button) => {
+      button.addEventListener('click', async () => {
+        const noteId = Number(button.dataset.diaryDelete);
+        if (!window.confirm('この野球日誌を削除しますか？')) return;
+        try {
+          await api(`/api/diary-notes/${noteId}`, { method: 'DELETE' });
+          if (state.diaryEditingNoteId === noteId) {
+            state.diaryEditingNoteId = null;
+          }
+          await renderDiary();
+        } catch (error) {
+          window.alert(error.message);
+        }
+      });
+    });
+  }
+
+  function updateDiaryNoteList() {
+    const container = qs('diaryNoteListSection');
+    if (!container) return;
+    container.innerHTML = buildDiaryNoteList(getFilteredDiaryNotes());
+    bindDiaryNoteListActions(container);
   }
 
   async function api(path, options = {}) {
@@ -1595,7 +1637,9 @@
           </div>
         </div>
       </section>
-      ${buildDiaryNoteList(filteredNotes)}
+      <div id="diaryNoteListSection">
+        ${buildDiaryNoteList(filteredNotes)}
+      </div>
     `;
 
     const form = qs('diaryForm');
@@ -1632,20 +1676,29 @@
       renderDiary({ reload: false });
     });
 
-    qs('diarySearch')?.addEventListener('input', (event) => {
-      const nextValue = event.target.value;
+    const diarySearchInput = qs('diarySearch');
+    const applyDiarySearch = (nextValue) => {
       state.diarySearchQuery = nextValue;
-      renderDiary({ reload: false }).then(() => {
-        const input = qs('diarySearch');
-        if (!input) return;
-        input.focus();
-        input.setSelectionRange(nextValue.length, nextValue.length);
-      });
+      updateDiaryNoteList();
+    };
+
+    diarySearchInput?.addEventListener('compositionstart', () => {
+      state.diarySearchComposing = true;
+    });
+
+    diarySearchInput?.addEventListener('compositionend', (event) => {
+      state.diarySearchComposing = false;
+      applyDiarySearch(event.target.value);
+    });
+
+    diarySearchInput?.addEventListener('input', (event) => {
+      if (state.diarySearchComposing) return;
+      applyDiarySearch(event.target.value);
     });
 
     qs('diarySortOrder')?.addEventListener('change', (event) => {
       state.diarySortOrder = event.target.value || 'desc';
-      renderDiary({ reload: false });
+      updateDiaryNoteList();
     });
 
     root.querySelectorAll('[data-diary-calendar-nav]').forEach((button) => {
@@ -1670,35 +1723,7 @@
       renderDiary({ reload: false });
     });
 
-    root.querySelectorAll('[data-diary-edit]').forEach((button) => {
-      button.addEventListener('click', () => {
-        const noteId = Number(button.dataset.diaryEdit);
-        const targetNote = state.diaryNotes.find((note) => note.id === noteId);
-        if (!targetNote) return;
-        state.diaryEditingNoteId = noteId;
-        state.diarySelectedDate = targetNote.entryDate;
-        state.diaryCalendarMonth = targetNote.entryDate.slice(0, 7);
-        renderDiary({ reload: false }).then(() => {
-          qs('diaryBody')?.focus();
-        });
-      });
-    });
-
-    root.querySelectorAll('[data-diary-delete]').forEach((button) => {
-      button.addEventListener('click', async () => {
-        const noteId = Number(button.dataset.diaryDelete);
-        if (!window.confirm('この野球日誌を削除しますか？')) return;
-        try {
-          await api(`/api/diary-notes/${noteId}`, { method: 'DELETE' });
-          if (state.diaryEditingNoteId === noteId) {
-            state.diaryEditingNoteId = null;
-          }
-          await renderDiary();
-        } catch (error) {
-          window.alert(error.message);
-        }
-      });
-    });
+    bindDiaryNoteListActions(qs('diaryNoteListSection'));
   }
 
   async function renderSettings() {
