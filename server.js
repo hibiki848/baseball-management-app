@@ -322,40 +322,82 @@ function mergePitchingBattedBallProfile(currentProfile, nextProfile) {
   return mergedProfile;
 }
 
-async function aggregateStatsForPlayer(playerId, allEntries) {
-  const entries = allEntries || (await listStatEntries({ playerId }));
-  const battingTotals = deriveBatting().raw;
-  const pitchingTotals = derivePitching().raw;
+function createEmptyAggregateTotals() {
+  return {
+    batting: deriveBatting().raw,
+    pitching: derivePitching().raw,
+  };
+}
 
-  for (const entry of entries.filter((item) => item.playerId === Number(playerId))) {
-    if (entry.category === 'batting') {
-      for (const [key, value] of Object.entries(entry.raw)) {
-        battingTotals[key] = parseNumber(battingTotals[key]) + parseNumber(value);
-      }
-    }
-    if (entry.category === 'pitching') {
-      for (const [key, value] of Object.entries(entry.raw)) {
-        if (key === 'pitchingBattedBallProfile') {
-          pitchingTotals.pitchingBattedBallProfile = mergePitchingBattedBallProfile(pitchingTotals.pitchingBattedBallProfile, value);
-          continue;
-        }
-        pitchingTotals[key] = parseNumber(pitchingTotals[key]) + parseNumber(value);
-      }
+function mergeEntryIntoAggregateTotals(totals, entry) {
+  if (!totals || !entry) return;
+
+  if (entry.category === 'batting') {
+    for (const [key, value] of Object.entries(entry.raw || {})) {
+      totals.batting[key] = parseNumber(totals.batting[key]) + parseNumber(value);
     }
   }
 
+  if (entry.category === 'pitching') {
+    for (const [key, value] of Object.entries(entry.raw || {})) {
+      if (key === 'pitchingBattedBallProfile') {
+        totals.pitching.pitchingBattedBallProfile = mergePitchingBattedBallProfile(totals.pitching.pitchingBattedBallProfile, value);
+        continue;
+      }
+      totals.pitching[key] = parseNumber(totals.pitching[key]) + parseNumber(value);
+    }
+  }
+}
+
+function finalizeAggregateTotals(totals) {
   return {
-    batting: deriveBatting(battingTotals),
-    pitching: derivePitching(pitchingTotals),
+    batting: deriveBatting(totals.batting),
+    pitching: derivePitching(totals.pitching),
+  };
+}
+
+function buildGameTypeMap(games = []) {
+  return new Map(games.map((game) => [Number(game.id), game.gameType]));
+}
+
+function createEmptySummaryBuckets() {
+  return AppStats.PERFORMANCE_SUMMARY_BUCKETS.reduce((buckets, bucket) => {
+    buckets[bucket.key] = createEmptyAggregateTotals();
+    return buckets;
+  }, {});
+}
+
+async function aggregateStatsForPlayer(playerId, allEntries, gamesOrGameTypeMap) {
+  const entries = allEntries || (await listStatEntries({ playerId }));
+  const gameTypeById =
+    gamesOrGameTypeMap instanceof Map
+      ? gamesOrGameTypeMap
+      : buildGameTypeMap(Array.isArray(gamesOrGameTypeMap) ? gamesOrGameTypeMap : (await listGames()));
+  const overallTotals = createEmptyAggregateTotals();
+  const totalsByBucket = createEmptySummaryBuckets();
+
+  for (const entry of entries.filter((item) => item.playerId === Number(playerId))) {
+    mergeEntryIntoAggregateTotals(overallTotals, entry);
+    const bucketKey = AppStats.getPerformanceSummaryBucketForGameType(gameTypeById.get(Number(entry.gameId)));
+    mergeEntryIntoAggregateTotals(totalsByBucket[bucketKey], entry);
+  }
+
+  return {
+    ...finalizeAggregateTotals(overallTotals),
+    byBucket: AppStats.PERFORMANCE_SUMMARY_BUCKETS.reduce((result, bucket) => {
+      result[bucket.key] = finalizeAggregateTotals(totalsByBucket[bucket.key]);
+      return result;
+    }, {}),
   };
 }
 
 async function aggregateTeamStats(players, games, entries) {
   const battingTotals = deriveBatting().raw;
   const pitchingTotals = derivePitching().raw;
+  const gameTypeById = buildGameTypeMap(games);
 
   for (const player of players) {
-    const summary = await aggregateStatsForPlayer(player.id, entries);
+    const summary = await aggregateStatsForPlayer(player.id, entries, gameTypeById);
     for (const [key, value] of Object.entries(summary.batting.raw)) {
       battingTotals[key] = parseNumber(battingTotals[key]) + parseNumber(value);
     }
@@ -383,10 +425,10 @@ async function aggregateTeamStats(players, games, entries) {
   };
 }
 
-async function buildRankings(players, entries) {
+async function buildRankings(players, entries, gameTypeById) {
   const rankings = [];
   for (const player of players) {
-    const summary = await aggregateStatsForPlayer(player.id, entries);
+    const summary = await aggregateStatsForPlayer(player.id, entries, gameTypeById);
     rankings.push({
       id: player.id,
       name: player.name,
@@ -468,15 +510,16 @@ async function buildDashboardPayload(reqUser) {
     findBig3RecordByUserId(reqUser.id),
   ]);
   const recentGame = buildGameSummary(games[0], entries, uploads);
+  const gameTypeById = buildGameTypeMap(games);
   const team = await aggregateTeamStats(players, games, entries);
-  const rankings = await buildRankings(players, entries);
+  const rankings = await buildRankings(players, entries, gameTypeById);
   const big3Rankings = buildBig3Rankings(players, big3Records);
 
   const playerSummaries = [];
   for (const player of players) {
     playerSummaries.push({
       player,
-      summary: await aggregateStatsForPlayer(player.id, entries),
+      summary: await aggregateStatsForPlayer(player.id, entries, gameTypeById),
     });
   }
 
@@ -486,6 +529,7 @@ async function buildDashboardPayload(reqUser) {
       : await aggregateStatsForPlayer(
           reqUser.role === 'player' ? reqUser.id : (playerSummaries[0] && playerSummaries[0].player.id),
           entries,
+          gameTypeById,
         );
 
   return {

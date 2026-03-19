@@ -202,6 +202,20 @@ button,
   color: var(--primary);
   font-weight: 700;
 }
+.summary-split-section {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+.summary-split-section:first-of-type {
+  margin-top: 10px;
+  padding-top: 0;
+  border-top: 0;
+}
+.summary-split-section h3 {
+  margin: 0 0 10px;
+  font-size: 0.94rem;
+}
 .ground-fly-detail {
   margin-top: 10px;
   border-top: 1px solid var(--border);

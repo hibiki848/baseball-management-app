@@ -78,6 +78,7 @@
     practice: '練習試合',
     intrasquad: '紅白戦',
   };
+  const performanceSummaryBuckets = AppStats.PERFORMANCE_SUMMARY_BUCKETS;
 
   function getGameTypeLabel(gameType) {
     return gameTypeLabels[gameType] || '未設定';
@@ -521,13 +522,12 @@
     `;
   }
 
-  function buildPersonalSummaryCard(summary, user) {
-    if (!summary) return '';
+  function buildPersonalSummarySection(summary, sectionKey, heading) {
     const breakdown = summary.pitching.derived.pitchingBattedBallBreakdown;
+    const toggleId = `personal-summary-${sectionKey}`;
     return `
-      <section class="card">
-        <h2>個人成績サマリー</h2>
-        <p class="small">${user.role === 'player' ? '自分の成績のみ表示しています。' : '反映済みの集計結果です。'}</p>
+      <div class="summary-split-section">
+        <h3>${escapeHtml(heading)}</h3>
         ${createStatGrid([
           { label: '打率', value: fmt3(summary.batting.derived.battingAverage) },
           { label: '出塁率', value: fmt3(summary.batting.derived.onBasePercentage) },
@@ -545,13 +545,24 @@
             value: fmt3(summary.pitching.derived.groundFlyRatio),
             meta: 'クリックで球種別内訳',
             className: 'stat-card-button',
-            attributes: 'data-ground-fly-toggle="personal-summary" role="button" tabindex="0" aria-expanded="false"',
+            attributes: `data-ground-fly-toggle="${toggleId}" role="button" tabindex="0" aria-expanded="false"`,
           },
         ])}
-        <div id="groundFlyDetailPanel-personal-summary" class="ground-fly-detail hidden">
+        <div id="groundFlyDetailPanel-${toggleId}" class="ground-fly-detail hidden">
           <div class="small">球種ごとのゴロ・フライ割合を簡易表示しています。既存データで球種不明のものは「不明」に集約しています。</div>
           ${buildGroundFlyDetailTable({ pitching: { derived: { pitchingBattedBallBreakdown: breakdown } } })}
         </div>
+      </div>
+    `;
+  }
+
+  function buildPersonalSummaryCard(summary, user) {
+    if (!summary) return '';
+    return `
+      <section class="card">
+        <h2>個人成績サマリー</h2>
+        <p class="small">${user.role === 'player' ? '自分の成績のみ表示しています。' : '反映済みの集計結果です。'}</p>
+        ${performanceSummaryBuckets.map(({ key, label }) => buildPersonalSummarySection((summary.byBucket && summary.byBucket[key]) || summary, key, label)).join('')}
       </section>
     `;
   }

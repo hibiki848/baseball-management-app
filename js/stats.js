@@ -196,9 +196,33 @@
     return false;
   }
 
+  const PERFORMANCE_SUMMARY_BUCKETS = Object.freeze([
+    Object.freeze({ key: 'game', label: '試合成績', gameTypes: Object.freeze(['official', 'practice']) }),
+    Object.freeze({ key: 'practice', label: '練習成績', gameTypes: Object.freeze(['intrasquad']) }),
+  ]);
+
+  const performanceSummaryBucketByGameType = Object.freeze(
+    PERFORMANCE_SUMMARY_BUCKETS.reduce((bucketMap, bucket) => {
+      bucket.gameTypes.forEach((gameType) => {
+        bucketMap[gameType] = bucket.key;
+      });
+      return bucketMap;
+    }, {}),
+  );
+
+  function getPerformanceSummaryBucketForGameType(gameType) {
+    return performanceSummaryBucketByGameType[String(gameType || '').trim()] || 'game';
+  }
+
+  function getPerformanceSummaryBucketLabel(bucketKey) {
+    const bucket = PERFORMANCE_SUMMARY_BUCKETS.find((item) => item.key === bucketKey);
+    return bucket ? bucket.label : bucketKey;
+  }
+
   const stats = Object.freeze({
     PITCH_TYPE_OPTIONS,
     BATTED_BALL_TYPE_OPTIONS,
+    PERFORMANCE_SUMMARY_BUCKETS,
     toCount,
     normalizePitchTypeKey,
     normalizeBattedBallTypeKey,
@@ -207,6 +231,8 @@
     summarizePitchingBattedBallProfile,
     applyPitchingBattedBallBreakdown,
     extractBreakdownToken,
+    getPerformanceSummaryBucketForGameType,
+    getPerformanceSummaryBucketLabel,
   });
 
   if (typeof module !== 'undefined' && module.exports) {
