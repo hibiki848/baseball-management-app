@@ -639,30 +639,12 @@ button,
   color: var(--subtext);
 }
 
-.condition-list-item {
-  width: 100%;
-  text-align: left;
+.condition-detail-footer {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 8px;
-  background: #fff;
-  border: 1px solid var(--border);
-}
-
-.condition-list-item:last-child {
-  margin-bottom: 0;
-}
-
-.condition-list-item.is-selected {
-  border-color: var(--primary);
-  background: var(--primary-light);
-}
-
-.condition-list-main {
-  display: grid;
-  gap: 4px;
+  margin-top: 12px;
 }
 
 .condition-weight-trigger {
@@ -814,9 +796,13 @@ button,
   .diary-list-header,
   .diary-note-header,
   .condition-detail-header,
+<<<<<<< HEAD
+  .condition-detail-footer {
+=======
   .condition-list-item,
   .condition-weight-chart-header,
   .condition-weight-trigger-label {
+>>>>>>> origin/main
     align-items: flex-start;
     flex-direction: column;
   }
