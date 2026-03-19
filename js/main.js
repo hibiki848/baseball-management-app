@@ -447,6 +447,59 @@
     `;
   }
 
+  function buildPersonalGoalCard(user) {
+    if (!user || user.role !== 'player') return '';
+    const personalGoal = String((user.profile && user.profile.personalGoal) || '');
+    const hasGoal = Boolean(personalGoal.trim());
+    return `
+      <section class="card">
+        <h2>個人目標</h2>
+        <p class="small">${hasGoal ? '今月の目標を必要に応じてホーム上で更新できます。' : '今月の目標を入力すると、次回ログイン後もこの画面に表示されます。'}</p>
+        <form id="personalGoalForm">
+          <div class="form-row">
+            <label for="personalGoalInput">今月の目標</label>
+            <textarea id="personalGoalInput" name="personalGoal" maxlength="300" placeholder="今月の目標を入力">${escapeHtml(personalGoal)}</textarea>
+          </div>
+          <div class="goal-card-footer">
+            <div id="personalGoalStatus" class="small goal-status">${hasGoal ? `保存済み: ${escapeHtml(personalGoal)}` : 'まだ個人目標は未入力です。'}</div>
+            <button class="button-primary goal-save-button" type="submit">保存する</button>
+          </div>
+          <div id="personalGoalMessage" class="small"></div>
+        </form>
+      </section>
+    `;
+  }
+
+  function bindPersonalGoalForm() {
+    const form = qs('personalGoalForm');
+    if (!form) return;
+    const message = qs('personalGoalMessage');
+    const input = qs('personalGoalInput');
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      message.className = 'small';
+      message.textContent = '保存中です...';
+      try {
+        const payload = await api('/api/profile/personal-goal', {
+          method: 'PUT',
+          body: JSON.stringify({ personalGoal: input.value }),
+        });
+        state.user = payload.user;
+        await refreshData();
+        const savedGoal = String((state.dashboard && state.dashboard.user && state.dashboard.user.profile && state.dashboard.user.profile.personalGoal) || '');
+        const status = qs('personalGoalStatus');
+        if (status) status.textContent = savedGoal ? `保存済み: ${savedGoal}` : 'まだ個人目標は未入力です。';
+        if (input) input.value = savedGoal;
+        message.className = 'small success-text';
+        message.textContent = payload.message;
+      } catch (error) {
+        message.className = 'small error-text';
+        message.textContent = error.message;
+      }
+    });
+  }
+
   function buildRecentGameCard(recentGame) {
     if (!recentGame) {
       return `<section class="card"><h2>直近試合結果</h2><div class="small">試合がまだ登録されていません。</div></section>`;
@@ -962,7 +1015,9 @@
     if (!root) return;
     await refreshData();
     const { user, recentGame, teamSummary, personalSummary, rankings, playerSummaries, big3 } = state.dashboard;
-    const sections = [buildRoleHero(user), buildRecentGameCard(recentGame), buildBig3RankingCard(big3)];
+    const sections = [buildRoleHero(user)];
+    if (user.role === 'player') sections.push(buildPersonalGoalCard(user));
+    sections.push(buildRecentGameCard(recentGame), buildBig3RankingCard(big3));
     if (user.role !== 'manager') sections.push(buildPersonalSummaryCard(personalSummary, user));
     sections.push(buildTeamSummaryCard(teamSummary));
     if (user.role === 'manager') {
@@ -975,6 +1030,7 @@
     root.innerHTML = sections.join('');
     bindBig3Tabs();
     bindGroundFlyToggles(root);
+    bindPersonalGoalForm();
     bindManualForm();
     bindScorebookForm();
     if (state.scorebookUpload) renderScorebookPreview(state.scorebookUpload);

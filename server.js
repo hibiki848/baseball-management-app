@@ -21,6 +21,7 @@ const {
   sessionStore,
   upsertBig3Record,
   upsertStatEntry,
+  updateUserProfile,
 } = require('./db/mysql');
 
 const app = express();
@@ -38,6 +39,7 @@ const PLAYER_META_DEFAULTS = {
   bats: '右',
   throws: '右',
   position: '未設定',
+  personalGoal: '',
 };
 const GAME_TYPE_LABELS = {
   official: '公式戦',
@@ -758,6 +760,31 @@ app.post('/api/stats/manual', requireRole(['manager', 'player']), async (req, re
     createdBy: req.session.user.id,
   });
   res.status(200).json({ message: '成績を保存しました。', entry: await serializeEntry(entry) });
+});
+
+app.put('/api/profile/personal-goal', requireRole(['player']), async (req, res) => {
+  const user = await findUserById(req.session.user.id);
+  if (!user || user.role !== 'player') {
+    return res.status(404).json({ message: '対象の選手が見つかりません。' });
+  }
+
+  const personalGoal = String(req.body.personalGoal || '').trim();
+  if (personalGoal.length > 300) {
+    return res.status(400).json({ message: '個人目標は300文字以内で入力してください。' });
+  }
+
+  const updatedUser = await updateUserProfile(user.id, {
+    ...PLAYER_META_DEFAULTS,
+    ...(user.profile || {}),
+    personalGoal,
+  });
+  req.session.user = sanitizeUser(updatedUser);
+  await saveSession(req);
+
+  return res.status(200).json({
+    message: personalGoal ? '個人目標を保存しました。' : '個人目標をクリアしました。',
+    user: sanitizeUser(updatedUser),
+  });
 });
 
 app.post('/api/big3', requireRole(['manager', 'player']), async (req, res) => {

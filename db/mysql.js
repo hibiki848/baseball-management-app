@@ -279,6 +279,16 @@ async function createUser({ name, email, role, passwordHash, profile }) {
   return findUserById(result.insertId);
 }
 
+async function updateUserProfile(userId, profile) {
+  await pool.query(
+    `UPDATE users
+     SET profile_json = ?
+     WHERE id = ?`,
+    [JSON.stringify(profile || {}), userId],
+  );
+  return findUserById(userId);
+}
+
 async function deleteUserAccount(userId) {
   await pool.query('DELETE FROM users WHERE id = ?', [userId]);
 }
@@ -434,6 +444,7 @@ module.exports = {
   createScorebookUpload,
   createUser,
   deleteUserAccount,
+  updateUserProfile,
   findBig3RecordByUserId,
   findGameById,
   findUserByEmail,
