@@ -170,8 +170,7 @@ button,
   max-width: 920px;
   margin: 0 auto;
   display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: minmax(0, 1fr);
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   border-top: 1px solid var(--border);
   background: rgba(255, 255, 255, 0.96);
 }
