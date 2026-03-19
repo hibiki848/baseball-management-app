@@ -268,17 +268,20 @@ async function initDatabase() {
   }
 
   const [columnRows] = await pool.query(
-    `SELECT TABLE_NAME, COLUMN_NAME
+    `SELECT TABLE_NAME, COLUMN_NAME, COLUMN_TYPE
      FROM INFORMATION_SCHEMA.COLUMNS
      WHERE TABLE_SCHEMA = DATABASE()
        AND (
          (TABLE_NAME = 'games' AND COLUMN_NAME = 'game_type')
-         OR (TABLE_NAME = 'users' AND COLUMN_NAME = 'profile_json')
+         OR (TABLE_NAME = 'users' AND COLUMN_NAME IN ('id', 'profile_json'))
+         OR (TABLE_NAME = 'player_condition_records' AND COLUMN_NAME IN ('user_id', 'created_by', 'updated_by'))
        )`,
   );
 
   const hasGameTypeColumn = columnRows.some((row) => row.TABLE_NAME === 'games' && row.COLUMN_NAME === 'game_type');
   const hasProfileJsonColumn = columnRows.some((row) => row.TABLE_NAME === 'users' && row.COLUMN_NAME === 'profile_json');
+  const userIdColumn = columnRows.find((row) => row.TABLE_NAME === 'users' && row.COLUMN_NAME === 'id');
+  const playerConditionUserColumns = columnRows.filter((row) => row.TABLE_NAME === 'player_condition_records');
 
   if (!hasGameTypeColumn) {
     await pool.query(
@@ -292,6 +295,20 @@ async function initDatabase() {
       `ALTER TABLE users
        ADD COLUMN profile_json JSON NULL AFTER password_hash`,
     );
+  }
+
+  if (userIdColumn && playerConditionUserColumns.length) {
+    const userIdColumnType = userIdColumn.COLUMN_TYPE;
+    const requiresPlayerConditionUserTypeFix = playerConditionUserColumns.some((row) => row.COLUMN_TYPE !== userIdColumnType);
+
+    if (requiresPlayerConditionUserTypeFix) {
+      await pool.query(
+        `ALTER TABLE player_condition_records
+         MODIFY COLUMN user_id ${userIdColumnType} NOT NULL,
+         MODIFY COLUMN created_by ${userIdColumnType} NULL,
+         MODIFY COLUMN updated_by ${userIdColumnType} NULL`,
+      );
+    }
   }
 
   await pool.query(
