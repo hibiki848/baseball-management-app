@@ -333,7 +333,9 @@ button,
 
 .goal-card-footer {
   display: grid;
-  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 8px 12px;
 }
 
 .goal-status {
@@ -342,6 +344,7 @@ button,
 
 .goal-message {
   min-height: 1.2em;
+  text-align: right;
 }
 
 .big3-rank-main {
@@ -412,6 +415,11 @@ button,
 
 @media (max-width: 640px) {
   .goal-card-footer {
+    grid-template-columns: 1fr;
     gap: 8px;
+  }
+
+  .goal-message {
+    text-align: left;
   }
 }
