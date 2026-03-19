@@ -101,6 +101,18 @@ function normalizeDiaryTags(value) {
   return [...new Set(rawValues.map((item) => String(item || '').trim()).filter(Boolean))].slice(0, 12);
 }
 
+function isValidIsoDate(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [yearText, monthText, dayText] = value.split('-');
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+  const candidate = new Date(Date.UTC(year, month - 1, day));
+  return candidate.getUTCFullYear() === year
+    && candidate.getUTCMonth() === month - 1
+    && candidate.getUTCDate() === day;
+}
+
 function validateDiaryNoteInput(rawInput = {}) {
   const entryDate = String(rawInput.entryDate || '').trim();
   const body = String(rawInput.body || '').trim();
@@ -111,6 +123,9 @@ function validateDiaryNoteInput(rawInput = {}) {
   }
   if (!/^\d{4}-\d{2}-\d{2}$/.test(entryDate)) {
     return { error: '日付の形式が不正です。' };
+  }
+  if (!isValidIsoDate(entryDate)) {
+    return { error: '実在する日付を入力してください。' };
   }
   if (!body) {
     return { error: '本文を入力してください。' };
@@ -905,8 +920,8 @@ app.post('/api/diary-notes', requireRole(['player']), async (req, res) => {
   const note = await createDiaryNote({
     userId: req.session.user.id,
     ...validation.values,
-    coachComments: Array.isArray(req.body.coachComments) ? req.body.coachComments : [],
-    coachStamps: Array.isArray(req.body.coachStamps) ? req.body.coachStamps : [],
+    coachComments: [],
+    coachStamps: [],
     createdBy: req.session.user.id,
     updatedBy: req.session.user.id,
   });
@@ -931,8 +946,8 @@ app.put('/api/diary-notes/:id', requireRole(['player']), async (req, res) => {
   const note = await updateDiaryNote(noteId, {
     ...validation.values,
     tags: validation.values.tags,
-    coachComments: Array.isArray(req.body.coachComments) ? req.body.coachComments : existingNote.coachComments || [],
-    coachStamps: Array.isArray(req.body.coachStamps) ? req.body.coachStamps : existingNote.coachStamps || [],
+    coachComments: existingNote.coachComments || [],
+    coachStamps: existingNote.coachStamps || [],
     updatedBy: req.session.user.id,
   });
   return res.status(200).json({ message: '野球日誌を更新しました。', note });
