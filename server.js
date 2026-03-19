@@ -7,6 +7,7 @@ const {
   createDiaryNote,
   createScorebookUpload,
   createUser,
+  deleteConditionRecordByUserAndDate,
   deleteDiaryNote,
   deleteUserAccount,
   findBig3RecordByUserId,
@@ -1063,6 +1064,20 @@ app.post('/api/condition-records', requireRole(['player']), async (req, res) => 
       fatigueLevel: FATIGUE_LEVEL_LABELS[record.fatigueLevel] || record.fatigueLevel,
     },
   });
+});
+
+app.delete('/api/condition-records/:entryDate', requireRole(['player']), async (req, res) => {
+  const entryDate = String(req.params.entryDate || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(entryDate) || !isValidIsoDate(entryDate)) {
+    return res.status(400).json({ message: '削除対象の日付が不正です。' });
+  }
+
+  const deleted = await deleteConditionRecordByUserAndDate(req.session.user.id, entryDate);
+  if (!deleted) {
+    return res.status(404).json({ message: '削除対象の体調データが見つかりません。' });
+  }
+
+  return res.status(200).json({ message: '体調データを削除しました。' });
 });
 
 app.post('/api/stats/scorebook-preview', requireRole(['manager']), async (req, res) => {
