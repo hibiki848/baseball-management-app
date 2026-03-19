@@ -665,6 +665,138 @@ button,
   gap: 4px;
 }
 
+.condition-weight-trigger {
+  text-align: left;
+  display: grid;
+  gap: 6px;
+}
+
+.condition-weight-trigger.is-active {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(22, 75, 134, 0.12);
+}
+
+.condition-weight-trigger-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.condition-weight-chart {
+  margin-top: 12px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 14px;
+  background: linear-gradient(180deg, #f8fbff 0%, #ffffff 100%);
+}
+
+.condition-weight-chart-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.condition-weight-chart-header h3 {
+  margin: 0 0 4px;
+  font-size: 0.96rem;
+}
+
+.segmented-control {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.segmented-control-button {
+  width: auto;
+  min-height: 36px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--subtext);
+  font-weight: 600;
+}
+
+.segmented-control-button.is-active {
+  border-color: var(--primary);
+  background: var(--primary-light);
+  color: var(--primary);
+}
+
+.condition-weight-chart-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.condition-weight-chart-highlight {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid var(--border);
+}
+
+.condition-weight-chart-highlight strong {
+  font-size: 1rem;
+}
+
+.condition-weight-chart-highlight.is-up strong {
+  color: var(--warn);
+}
+
+.condition-weight-chart-highlight.is-down strong {
+  color: var(--ok);
+}
+
+.condition-weight-chart-canvas {
+  width: 100%;
+  min-height: 220px;
+}
+
+.condition-weight-chart-canvas svg {
+  width: 100%;
+  height: 220px;
+  color: var(--primary);
+  overflow: visible;
+}
+
+.condition-weight-chart-grid,
+.condition-weight-chart-baseline {
+  stroke: rgba(148, 163, 184, 0.4);
+  stroke-width: 1;
+}
+
+.condition-weight-chart-axis {
+  fill: var(--subtext);
+  font-size: 10px;
+}
+
+.condition-weight-chart-point {
+  fill: #fff;
+  stroke: currentColor;
+  stroke-width: 2;
+}
+
+.condition-weight-chart-point.is-current {
+  fill: currentColor;
+}
+
+.condition-weight-chart-empty {
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  padding: 24px 12px;
+  text-align: center;
+  color: var(--subtext);
+  background: rgba(255, 255, 255, 0.72);
+}
+
 @media (max-width: 720px) {
   .app { max-width: 100%; }
   .grid,
@@ -682,9 +814,23 @@ button,
   .diary-list-header,
   .diary-note-header,
   .condition-detail-header,
-  .condition-list-item {
+  .condition-list-item,
+  .condition-weight-chart-header,
+  .condition-weight-trigger-label {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .condition-weight-chart-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .segmented-control {
+    width: 100%;
+  }
+
+  .segmented-control-button {
+    flex: 1 1 calc(33.333% - 4px);
   }
 
   .calendar-weekdays,
