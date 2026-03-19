@@ -8,6 +8,7 @@ const requiredMigrationFiles = [
   '20260318_create_mysql_persistence.sql',
   '20260318_add_big3_records.sql',
   '20260319_add_baseball_diary_notes.sql',
+  '20260319_add_player_condition_records.sql',
 ];
 
 function buildPoolOptions() {
@@ -233,6 +234,23 @@ function mapDiaryNote(row) {
     tags: parseJson(row.tags_json, []),
     coachComments: parseJson(row.coach_comments_json, []),
     coachStamps: parseJson(row.coach_stamps_json, []),
+    createdBy: row.created_by == null ? null : Number(row.created_by),
+    updatedBy: row.updated_by == null ? null : Number(row.updated_by),
+    createdAt: normalizeDateTime(row.created_at),
+    updatedAt: normalizeDateTime(row.updated_at),
+  };
+}
+
+function mapConditionRecord(row) {
+  if (!row) return null;
+  return {
+    id: Number(row.id),
+    userId: Number(row.user_id),
+    entryDate: normalizeDate(row.entry_date),
+    conditionStatus: row.condition_status,
+    weight: Number(row.weight),
+    sleepHours: Number(row.sleep_hours),
+    fatigueLevel: row.fatigue_level,
     createdBy: row.created_by == null ? null : Number(row.created_by),
     updatedBy: row.updated_by == null ? null : Number(row.updated_by),
     createdAt: normalizeDateTime(row.created_at),
@@ -559,6 +577,60 @@ async function deleteDiaryNote(id) {
   await pool.query('DELETE FROM baseball_diary_notes WHERE id = ?', [id]);
 }
 
+async function listConditionRecords(filters = {}) {
+  const clauses = [];
+  const values = [];
+  if (filters.userId != null) {
+    clauses.push('user_id = ?');
+    values.push(filters.userId);
+  }
+  if (filters.entryDate) {
+    clauses.push('entry_date = ?');
+    values.push(filters.entryDate);
+  }
+  const whereClause = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
+  const [rows] = await pool.query(
+    `SELECT *
+     FROM player_condition_records
+     ${whereClause}
+     ORDER BY entry_date DESC, updated_at DESC, id DESC`,
+    values,
+  );
+  return rows.map(mapConditionRecord);
+}
+
+async function findConditionRecordByUserAndDate(userId, entryDate) {
+  const [rows] = await pool.query(
+    'SELECT * FROM player_condition_records WHERE user_id = ? AND entry_date = ? LIMIT 1',
+    [userId, entryDate],
+  );
+  return mapConditionRecord(rows[0]);
+}
+
+async function upsertConditionRecord({ userId, entryDate, conditionStatus, weight, sleepHours, fatigueLevel, createdBy, updatedBy }) {
+  await pool.query(
+    `INSERT INTO player_condition_records (
+      user_id,
+      entry_date,
+      condition_status,
+      weight,
+      sleep_hours,
+      fatigue_level,
+      created_by,
+      updated_by
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ON DUPLICATE KEY UPDATE
+      condition_status = VALUES(condition_status),
+      weight = VALUES(weight),
+      sleep_hours = VALUES(sleep_hours),
+      fatigue_level = VALUES(fatigue_level),
+      updated_by = VALUES(updated_by),
+      updated_at = CURRENT_TIMESTAMP`,
+    [userId, entryDate, conditionStatus, weight, sleepHours, fatigueLevel, createdBy, updatedBy],
+  );
+  return findConditionRecordByUserAndDate(userId, entryDate);
+}
+
 async function closeDatabase() {
   sessionStore.close();
   await pool.end();
@@ -572,6 +644,7 @@ module.exports = {
   createUser,
   deleteDiaryNote,
   deleteUserAccount,
+  findConditionRecordByUserAndDate,
   findDiaryNoteById,
   updateUserProfile,
   findBig3RecordByUserId,
@@ -581,6 +654,7 @@ module.exports = {
   getCounts,
   initDatabase,
   listBig3Records,
+  listConditionRecords,
   listDiaryNotes,
   listGames,
   listScorebookUploads,
@@ -590,5 +664,6 @@ module.exports = {
   sessionStore,
   updateDiaryNote,
   upsertBig3Record,
+  upsertConditionRecord,
   upsertStatEntry,
 };
