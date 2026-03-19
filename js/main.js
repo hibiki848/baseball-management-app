@@ -525,31 +525,35 @@
   }
 
   function buildPersonalSummarySection(summary, sectionKey, heading) {
-    const breakdown = summary.pitching.derived.pitchingBattedBallBreakdown;
+    const bucketSummary = summary || {};
+    const battingDerived = (bucketSummary.batting && bucketSummary.batting.derived) || {};
+    const pitchingDerived = (bucketSummary.pitching && bucketSummary.pitching.derived) || {};
+    const breakdown = pitchingDerived.pitchingBattedBallBreakdown;
     const toggleId = `personal-summary-${sectionKey}`;
+    const stats = [
+      { label: '打率', value: fmt3(battingDerived.battingAverage) },
+      { label: '出塁率', value: fmt3(battingDerived.onBasePercentage) },
+      { label: '長打率', value: fmt3(battingDerived.sluggingPercentage) },
+      { label: 'OPS', value: fmt3(battingDerived.ops) },
+      { label: '盗塁成功率', value: fmtPct(battingDerived.stealSuccessRate) },
+      { label: '得点圏打率', value: fmt3(battingDerived.rispAverage) },
+      { label: '左右投手別打率', value: `${fmt3(battingDerived.vsLeftAverage)} / ${fmt3(battingDerived.vsRightAverage)}` },
+      { label: '防御率', value: fmt3(pitchingDerived.era) },
+      { label: 'WHIP', value: fmt3(pitchingDerived.whip) },
+      { label: '被打率', value: fmt3(pitchingDerived.hitAverage) },
+      { label: '左右別被打率', value: `${fmt3(pitchingDerived.vsLeftHitAverage)} / ${fmt3(pitchingDerived.vsRightHitAverage)}` },
+      {
+        label: 'ゴロ/フライ',
+        value: fmt3(pitchingDerived.groundFlyRatio),
+        meta: 'クリックで球種別内訳',
+        className: 'stat-card-button',
+        attributes: `data-ground-fly-toggle="${toggleId}" role="button" tabindex="0" aria-expanded="false"`,
+      },
+    ];
     return `
       <div class="summary-split-section">
         <h3>${escapeHtml(heading)}</h3>
-        ${createStatGrid([
-          { label: '打率', value: fmt3(summary.batting.derived.battingAverage) },
-          { label: '出塁率', value: fmt3(summary.batting.derived.onBasePercentage) },
-          { label: '長打率', value: fmt3(summary.batting.derived.sluggingPercentage) },
-          { label: 'OPS', value: fmt3(summary.batting.derived.ops) },
-          { label: '盗塁成功率', value: fmtPct(summary.batting.derived.stealSuccessRate) },
-          { label: '得点圏打率', value: fmt3(summary.batting.derived.rispAverage) },
-          { label: '左右投手別打率', value: `${fmt3(summary.batting.derived.vsLeftAverage)} / ${fmt3(summary.batting.derived.vsRightAverage)}` },
-          { label: '防御率', value: fmt3(summary.pitching.derived.era) },
-          { label: 'WHIP', value: fmt3(summary.pitching.derived.whip) },
-          { label: '被打率', value: fmt3(summary.pitching.derived.hitAverage) },
-          { label: '左右別被打率', value: `${fmt3(summary.pitching.derived.vsLeftHitAverage)} / ${fmt3(summary.pitching.derived.vsRightHitAverage)}` },
-          {
-            label: 'ゴロ/フライ',
-            value: fmt3(summary.pitching.derived.groundFlyRatio),
-            meta: 'クリックで球種別内訳',
-            className: 'stat-card-button',
-            attributes: `data-ground-fly-toggle="${toggleId}" role="button" tabindex="0" aria-expanded="false"`,
-          },
-        ])}
+        ${createStatGrid(stats)}
         <div id="groundFlyDetailPanel-${toggleId}" class="ground-fly-detail hidden">
           <div class="small">球種ごとのゴロ・フライ割合を簡易表示しています。既存データで球種不明のものは「不明」に集約しています。</div>
           ${buildGroundFlyDetailTable({ pitching: { derived: { pitchingBattedBallBreakdown: breakdown } } })}
@@ -560,11 +564,14 @@
 
   function buildPersonalSummaryCard(summary, user) {
     if (!summary) return '';
+    const bucketSections = performanceSummaryBuckets
+      .map(({ key, label }) => buildPersonalSummarySection((summary.byBucket && summary.byBucket[key]) || summary, key, label))
+      .join('');
     return `
       <section class="card">
         <h2>個人成績サマリー</h2>
         <p class="small">${user.role === 'player' ? '自分の成績のみ表示しています。' : '反映済みの集計結果です。'}</p>
-        ${performanceSummaryBuckets.map(({ key, label }) => buildPersonalSummarySection((summary.byBucket && summary.byBucket[key]) || summary, key, label)).join('')}
+        ${bucketSections}
       </section>
     `;
   }
