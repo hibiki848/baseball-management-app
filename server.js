@@ -242,6 +242,7 @@ function deriveBatting(rawInput = {}) {
 
 function derivePitching(rawInput = {}) {
   const normalizedInput = AppStats.applyPitchingBattedBallBreakdown(rawInput);
+  const normalizedBattedBallProfile = AppStats.normalizePitchingBattedBallProfile(normalizedInput.pitchingBattedBallProfile);
   const raw = {
     pitchCount: parseNumber(normalizedInput.pitchCount),
     outsRecorded: parseNumber(normalizedInput.outsRecorded),
@@ -270,7 +271,7 @@ function derivePitching(rawInput = {}) {
     offspeedPull: parseNumber(normalizedInput.offspeedPull),
     offspeedCenter: parseNumber(normalizedInput.offspeedCenter),
     offspeedOpposite: parseNumber(normalizedInput.offspeedOpposite),
-    pitchingBattedBallProfile: normalizedInput.pitchingBattedBallProfile,
+    pitchingBattedBallProfile: normalizedBattedBallProfile,
   };
   const inningsPitched = outsToInnings(raw.outsRecorded);
   const walksAndHitByPitch = raw.walks + raw.hitByPitch;
@@ -306,6 +307,19 @@ function derivePitching(rawInput = {}) {
   };
 }
 
+function mergePitchingBattedBallProfile(currentProfile, nextProfile) {
+  const mergedProfile = AppStats.normalizePitchingBattedBallProfile(currentProfile);
+  const normalizedNextProfile = AppStats.normalizePitchingBattedBallProfile(nextProfile);
+
+  AppStats.PITCH_TYPE_OPTIONS.forEach(({ key: pitchTypeKey }) => {
+    AppStats.BATTED_BALL_TYPE_OPTIONS.forEach(({ key: battedBallTypeKey }) => {
+      mergedProfile[pitchTypeKey][battedBallTypeKey] += normalizedNextProfile[pitchTypeKey][battedBallTypeKey];
+    });
+  });
+
+  return mergedProfile;
+}
+
 async function aggregateStatsForPlayer(playerId, allEntries) {
   const entries = allEntries || (await listStatEntries({ playerId }));
   const battingTotals = deriveBatting().raw;
@@ -319,6 +333,10 @@ async function aggregateStatsForPlayer(playerId, allEntries) {
     }
     if (entry.category === 'pitching') {
       for (const [key, value] of Object.entries(entry.raw)) {
+        if (key === 'pitchingBattedBallProfile') {
+          pitchingTotals.pitchingBattedBallProfile = mergePitchingBattedBallProfile(pitchingTotals.pitchingBattedBallProfile, value);
+          continue;
+        }
         pitchingTotals[key] = parseNumber(pitchingTotals[key]) + parseNumber(value);
       }
     }
@@ -340,6 +358,10 @@ async function aggregateTeamStats(players, games, entries) {
       battingTotals[key] = parseNumber(battingTotals[key]) + parseNumber(value);
     }
     for (const [key, value] of Object.entries(summary.pitching.raw)) {
+      if (key === 'pitchingBattedBallProfile') {
+        pitchingTotals.pitchingBattedBallProfile = mergePitchingBattedBallProfile(pitchingTotals.pitchingBattedBallProfile, value);
+        continue;
+      }
       pitchingTotals[key] = parseNumber(pitchingTotals[key]) + parseNumber(value);
     }
   }
