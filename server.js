@@ -4,21 +4,26 @@ const bcrypt = require('bcrypt');
 
 const {
   createGame,
+  createDiaryNote,
   createScorebookUpload,
   createUser,
+  deleteDiaryNote,
   deleteUserAccount,
   findBig3RecordByUserId,
+  findDiaryNoteById,
   findGameById,
   findUserByEmail,
   findUserById,
   getCounts,
   initDatabase,
   listBig3Records,
+  listDiaryNotes,
   listGames,
   listScorebookUploads,
   listStatEntries,
   listUsers,
   sessionStore,
+  updateDiaryNote,
   upsertBig3Record,
   upsertStatEntry,
   updateUserProfile,
@@ -85,6 +90,39 @@ function parseNullableNumber(value) {
   if (value === '' || value == null) return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function normalizeDiaryTags(value) {
+  const rawValues = Array.isArray(value)
+    ? value
+    : String(value || '')
+        .split(/[,\n、]/)
+        .map((item) => item.trim());
+  return [...new Set(rawValues.map((item) => String(item || '').trim()).filter(Boolean))].slice(0, 12);
+}
+
+function validateDiaryNoteInput(rawInput = {}) {
+  const entryDate = String(rawInput.entryDate || '').trim();
+  const body = String(rawInput.body || '').trim();
+  const tags = normalizeDiaryTags(rawInput.tags);
+
+  if (!entryDate) {
+    return { error: '日付を入力してください。' };
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(entryDate)) {
+    return { error: '日付の形式が不正です。' };
+  }
+  if (!body) {
+    return { error: '本文を入力してください。' };
+  }
+  if (body.length > 4000) {
+    return { error: '本文は4000文字以内で入力してください。' };
+  }
+  if (tags.some((tag) => tag.length > 30)) {
+    return { error: 'タグは1つあたり30文字以内で入力してください。' };
+  }
+
+  return { values: { entryDate, body, tags } };
 }
 
 function validateBig3Input(rawInput = {}) {
@@ -851,6 +889,67 @@ app.post('/api/big3', requireRole(['manager', 'player']), async (req, res) => {
 
   const record = await upsertBig3Record({ userId, ...validation.values });
   return res.status(200).json({ message: 'BIG3記録を保存しました。', record });
+});
+
+app.get('/api/diary-notes', requireRole(['player']), async (req, res) => {
+  const notes = await listDiaryNotes({ userId: req.session.user.id });
+  return res.status(200).json({ notes });
+});
+
+app.post('/api/diary-notes', requireRole(['player']), async (req, res) => {
+  const validation = validateDiaryNoteInput(req.body);
+  if (validation.error) {
+    return res.status(400).json({ message: validation.error });
+  }
+
+  const note = await createDiaryNote({
+    userId: req.session.user.id,
+    ...validation.values,
+    coachComments: Array.isArray(req.body.coachComments) ? req.body.coachComments : [],
+    coachStamps: Array.isArray(req.body.coachStamps) ? req.body.coachStamps : [],
+    createdBy: req.session.user.id,
+    updatedBy: req.session.user.id,
+  });
+  return res.status(201).json({ message: '野球日誌を作成しました。', note });
+});
+
+app.put('/api/diary-notes/:id', requireRole(['player']), async (req, res) => {
+  const noteId = Number(req.params.id);
+  if (!noteId) {
+    return res.status(400).json({ message: '対象ノートが不正です。' });
+  }
+  const existingNote = await findDiaryNoteById(noteId);
+  if (!existingNote || existingNote.userId !== req.session.user.id) {
+    return res.status(404).json({ message: '対象の野球日誌が見つかりません。' });
+  }
+
+  const validation = validateDiaryNoteInput(req.body);
+  if (validation.error) {
+    return res.status(400).json({ message: validation.error });
+  }
+
+  const note = await updateDiaryNote(noteId, {
+    ...validation.values,
+    tags: validation.values.tags,
+    coachComments: Array.isArray(req.body.coachComments) ? req.body.coachComments : existingNote.coachComments || [],
+    coachStamps: Array.isArray(req.body.coachStamps) ? req.body.coachStamps : existingNote.coachStamps || [],
+    updatedBy: req.session.user.id,
+  });
+  return res.status(200).json({ message: '野球日誌を更新しました。', note });
+});
+
+app.delete('/api/diary-notes/:id', requireRole(['player']), async (req, res) => {
+  const noteId = Number(req.params.id);
+  if (!noteId) {
+    return res.status(400).json({ message: '対象ノートが不正です。' });
+  }
+  const existingNote = await findDiaryNoteById(noteId);
+  if (!existingNote || existingNote.userId !== req.session.user.id) {
+    return res.status(404).json({ message: '対象の野球日誌が見つかりません。' });
+  }
+
+  await deleteDiaryNote(noteId);
+  return res.status(200).json({ message: '野球日誌を削除しました。' });
 });
 
 app.post('/api/stats/scorebook-preview', requireRole(['manager']), async (req, res) => {
