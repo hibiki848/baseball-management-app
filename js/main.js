@@ -18,7 +18,12 @@
     conditionRecords: [],
     conditionSelectedDate: '',
     conditionCalendarMonth: new Date().toISOString().slice(0, 7),
+<<<<<<< HEAD
     conditionDetailMode: 'view',
+=======
+    conditionWeightChartVisible: false,
+    conditionWeightChartRange: 'all',
+>>>>>>> origin/main
   };
 
   const big3Fields = [
@@ -1844,6 +1849,152 @@
     `;
   }
 
+
+  function formatConditionChartAxisDate(dateString) {
+    if (!dateString) return '—';
+    const date = new Date(`${dateString}T00:00:00`);
+    if (Number.isNaN(date.getTime())) return dateString;
+    return date.toLocaleDateString('ja-JP', { month: 'numeric', day: 'numeric' });
+  }
+
+  function getConditionWeightChartReferenceDate() {
+    return state.conditionSelectedDate || state.conditionRecords[0]?.entryDate || new Date().toISOString().slice(0, 10);
+  }
+
+  function getConditionWeightHistory(range = 'all') {
+    const referenceDate = getConditionWeightChartReferenceDate();
+    const baseRecords = [...state.conditionRecords]
+      .filter((record) => record && record.entryDate && Number.isFinite(Number(record.weight)) && record.entryDate <= referenceDate)
+      .sort((left, right) => String(left.entryDate).localeCompare(String(right.entryDate)));
+
+    if (range === 'all') return baseRecords;
+
+    const dayWindow = range === '7d' ? 7 : range === '30d' ? 30 : null;
+    if (!dayWindow) return baseRecords;
+
+    const endDate = new Date(`${referenceDate}T00:00:00`);
+    if (Number.isNaN(endDate.getTime())) return baseRecords;
+    const startDate = new Date(endDate);
+    startDate.setDate(startDate.getDate() - (dayWindow - 1));
+    const startKey = startDate.toISOString().slice(0, 10);
+    return baseRecords.filter((record) => record.entryDate >= startKey);
+  }
+
+  function buildConditionWeightChart(record) {
+    if (!state.conditionWeightChartVisible) return '';
+
+    const range = state.conditionWeightChartRange || 'all';
+    const records = getConditionWeightHistory(range);
+    const rangeOptions = [
+      { value: '7d', label: '直近7日' },
+      { value: '30d', label: '直近30日' },
+      { value: 'all', label: '全期間' },
+    ];
+
+    if (!records.length) {
+      return `
+        <section class="condition-weight-chart" aria-live="polite">
+          <div class="condition-weight-chart-header">
+            <div>
+              <h3>体重の推移</h3>
+              <div class="small">${escapeHtml(formatDiaryDateLabel(getConditionWeightChartReferenceDate()))}までの記録</div>
+            </div>
+            <div class="segmented-control" role="tablist" aria-label="体重推移の表示範囲切り替え">
+              ${rangeOptions.map((option) => `
+                <button
+                  type="button"
+                  class="segmented-control-button ${range === option.value ? 'is-active' : ''}"
+                  data-condition-weight-range="${option.value}"
+                  aria-pressed="${String(range === option.value)}"
+                >${option.label}</button>
+              `).join('')}
+            </div>
+          </div>
+          <div class="condition-weight-chart-empty">体重データがありません。</div>
+        </section>
+      `;
+    }
+
+    const width = 320;
+    const height = 180;
+    const padding = { top: 20, right: 12, bottom: 34, left: 42 };
+    const chartWidth = width - padding.left - padding.right;
+    const chartHeight = height - padding.top - padding.bottom;
+    const weights = records.map((entry) => Number(entry.weight));
+    const minWeight = Math.min(...weights);
+    const maxWeight = Math.max(...weights);
+    const spread = Math.max(maxWeight - minWeight, 2);
+    const chartMin = Math.floor((minWeight - spread * 0.2) * 10) / 10;
+    const chartMax = Math.ceil((maxWeight + spread * 0.2) * 10) / 10;
+    const normalizedRange = Math.max(chartMax - chartMin, 1);
+    const getX = (index) => (records.length === 1 ? padding.left + chartWidth / 2 : padding.left + (chartWidth * index) / (records.length - 1));
+    const getY = (weight) => padding.top + ((chartMax - weight) / normalizedRange) * chartHeight;
+    const polylinePoints = records.map((entry, index) => `${getX(index).toFixed(1)},${getY(Number(entry.weight)).toFixed(1)}`).join(' ');
+    const gridValues = [chartMax, (chartMax + chartMin) / 2, chartMin];
+    const axisLabelIndexes = [...new Set([0, Math.floor((records.length - 1) / 2), records.length - 1])];
+    const firstWeight = Number(records[0].weight);
+    const lastWeight = Number(records[records.length - 1].weight);
+    const delta = lastWeight - firstWeight;
+    const deltaText = `${delta > 0 ? '+' : ''}${delta.toFixed(delta % 1 === 0 ? 0 : 1)}kg`;
+    const deltaClass = delta > 0 ? 'is-up' : delta < 0 ? 'is-down' : 'is-flat';
+    const latestRecord = records[records.length - 1];
+    const activeDateLabel = formatDiaryDateLabel(latestRecord?.entryDate || record?.entryDate || getConditionWeightChartReferenceDate());
+
+    return `
+      <section class="condition-weight-chart" aria-live="polite">
+        <div class="condition-weight-chart-header">
+          <div>
+            <h3>体重の推移</h3>
+            <div class="small">${escapeHtml(activeDateLabel)}までの推移を表示しています。</div>
+          </div>
+          <div class="segmented-control" role="tablist" aria-label="体重推移の表示範囲切り替え">
+            ${rangeOptions.map((option) => `
+              <button
+                type="button"
+                class="segmented-control-button ${range === option.value ? 'is-active' : ''}"
+                data-condition-weight-range="${option.value}"
+                aria-pressed="${String(range === option.value)}"
+              >${option.label}</button>
+            `).join('')}
+          </div>
+        </div>
+        <div class="condition-weight-chart-summary">
+          <div class="condition-weight-chart-highlight">
+            <span class="stat-label">最新体重</span>
+            <strong>${escapeHtml(fmtKg(lastWeight))}</strong>
+          </div>
+          <div class="condition-weight-chart-highlight ${deltaClass}">
+            <span class="stat-label">増減</span>
+            <strong>${escapeHtml(deltaText)}</strong>
+          </div>
+          <div class="condition-weight-chart-highlight">
+            <span class="stat-label">件数</span>
+            <strong>${records.length}件</strong>
+          </div>
+        </div>
+        <div class="condition-weight-chart-canvas" role="img" aria-label="日付ごとの体重推移グラフ">
+          <svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none">
+            ${gridValues.map((value) => {
+              const y = getY(value);
+              return `
+                <line x1="${padding.left}" y1="${y.toFixed(1)}" x2="${(padding.left + chartWidth).toFixed(1)}" y2="${y.toFixed(1)}" class="condition-weight-chart-grid" />
+                <text x="${(padding.left - 8).toFixed(1)}" y="${(y + 4).toFixed(1)}" text-anchor="end" class="condition-weight-chart-axis">${Number(value).toFixed(1).replace(/\.0$/, '')}</text>
+              `;
+            }).join('')}
+            <line x1="${padding.left}" y1="${(padding.top + chartHeight).toFixed(1)}" x2="${(padding.left + chartWidth).toFixed(1)}" y2="${(padding.top + chartHeight).toFixed(1)}" class="condition-weight-chart-baseline" />
+            ${records.length > 1 ? `<polyline fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" points="${polylinePoints}" />` : ''}
+            ${records.map((entry, index) => `
+              <circle cx="${getX(index).toFixed(1)}" cy="${getY(Number(entry.weight)).toFixed(1)}" r="4" class="condition-weight-chart-point ${entry.entryDate === state.conditionSelectedDate ? 'is-current' : ''}" />
+            `).join('')}
+            ${axisLabelIndexes.map((index) => `
+              <text x="${getX(index).toFixed(1)}" y="${(height - 10).toFixed(1)}" text-anchor="middle" class="condition-weight-chart-axis">${escapeHtml(formatConditionChartAxisDate(records[index].entryDate))}</text>
+            `).join('')}
+          </svg>
+        </div>
+      </section>
+    `;
+  }
+
   function buildConditionDetail(record) {
     const selectedDateLabel = state.conditionSelectedDate ? formatDiaryDateLabel(state.conditionSelectedDate) : '日付未選択';
     const isEditing = Boolean(record) && state.conditionDetailMode === 'edit';
@@ -1899,20 +2050,52 @@
               <div class="stat-label">疲労度</div>
               <div class="stat-value">${escapeHtml(getFatigueLevelLabel(record.fatigueLevel, record))}</div>
             </div>
-            <div class="stat-card">
-              <div class="stat-label">体重</div>
+            <button
+              type="button"
+              class="stat-card stat-card-button condition-weight-trigger ${state.conditionWeightChartVisible ? 'is-active' : ''}"
+              data-condition-weight-toggle
+              aria-expanded="${String(state.conditionWeightChartVisible)}"
+            >
+              <div class="condition-weight-trigger-label">
+                <div class="stat-label">体重</div>
+                <span class="small inline-link">${state.conditionWeightChartVisible ? 'グラフを閉じる' : '推移を見る'}</span>
+              </div>
               <div class="stat-value">${escapeHtml(String(record.weight))}kg</div>
-            </div>
+            </button>
             <div class="stat-card">
               <div class="stat-label">睡眠時間</div>
               <div class="stat-value">${escapeHtml(String(record.sleepHours))}時間</div>
             </div>
           </div>
+<<<<<<< HEAD
           <div class="condition-detail-footer">
             <div class="meta">更新: ${escapeHtml(String(record.updatedAt || '').replace('T', ' ').slice(0, 16) || '未更新')}</div>
             <div class="actions">
               <button class="button-secondary" type="button" id="conditionDetailEditBtn">編集する</button>
               <button class="button-danger" type="button" id="conditionDetailDeleteBtn">削除する</button>
+=======
+          ${buildConditionWeightChart(record)}
+          <div class="meta">更新: ${escapeHtml(String(record.updatedAt || '').replace('T', ' ').slice(0, 16) || '未更新')}</div>
+        ` : '<div class="small">選択した日付の体調データはまだありません。</div>'}
+      </section>
+    `;
+  }
+
+  function buildConditionRecordList(records) {
+    return `
+      <section class="card">
+        <div class="diary-list-header">
+          <div>
+            <h2>入力履歴</h2>
+            <div class="small">保存済み ${records.length}件</div>
+          </div>
+        </div>
+        ${records.length === 0 ? '<div class="small">まだ体調データがありません。</div>' : records.map((record) => `
+          <button type="button" class="list-item condition-list-item ${state.conditionSelectedDate === record.entryDate ? 'is-selected' : ''}" data-condition-select-date="${record.entryDate}">
+            <div class="condition-list-main">
+              <strong>${escapeHtml(formatDiaryDateLabel(record.entryDate))}</strong>
+              <div class="meta">体調 ${escapeHtml(getConditionStatusLabel(record.conditionStatus, record))} / 体重 ${escapeHtml(String(record.weight))}kg / 睡眠 ${escapeHtml(String(record.sleepHours))}時間 / 疲労度 ${escapeHtml(getFatigueLevelLabel(record.fatigueLevel, record))}</div>
+>>>>>>> origin/main
             </div>
           </div>
           <div id="conditionDetailMessage" class="small"></div>
@@ -2022,6 +2205,19 @@
       state.conditionCalendarMonth = state.conditionSelectedDate.slice(0, 7);
       state.conditionDetailMode = 'view';
       renderConditionCheck({ reload: false });
+    });
+
+    root.querySelector('[data-condition-weight-toggle]')?.addEventListener('click', () => {
+      state.conditionWeightChartVisible = !state.conditionWeightChartVisible;
+      renderConditionCheck({ reload: false });
+    });
+
+    root.querySelectorAll('[data-condition-weight-range]').forEach((button) => {
+      button.addEventListener('click', () => {
+        state.conditionWeightChartVisible = true;
+        state.conditionWeightChartRange = button.dataset.conditionWeightRange || 'all';
+        renderConditionCheck({ reload: false });
+      });
     });
 
     root.querySelectorAll('[data-condition-calendar-nav]').forEach((button) => {
