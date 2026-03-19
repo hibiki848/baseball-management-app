@@ -648,6 +648,14 @@ async function upsertConditionRecord({ userId, entryDate, conditionStatus, weigh
   return findConditionRecordByUserAndDate(userId, entryDate);
 }
 
+async function deleteConditionRecordByUserAndDate(userId, entryDate) {
+  const [result] = await pool.query(
+    'DELETE FROM player_condition_records WHERE user_id = ? AND entry_date = ? LIMIT 1',
+    [userId, entryDate],
+  );
+  return Number(result.affectedRows || 0) > 0;
+}
+
 async function closeDatabase() {
   sessionStore.close();
   await pool.end();
@@ -659,6 +667,7 @@ module.exports = {
   createDiaryNote,
   createScorebookUpload,
   createUser,
+  deleteConditionRecordByUserAndDate,
   deleteDiaryNote,
   deleteUserAccount,
   findConditionRecordByUserAndDate,

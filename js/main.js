@@ -18,6 +18,7 @@
     conditionRecords: [],
     conditionSelectedDate: '',
     conditionCalendarMonth: new Date().toISOString().slice(0, 7),
+    conditionDetailMode: 'view',
   };
 
   const big3Fields = [
@@ -306,6 +307,9 @@
   async function refreshConditionRecords() {
     const payload = await api('/api/condition-records');
     state.conditionRecords = (payload.records || []).map((record) => normalizeConditionRecord(record));
+    if (state.conditionSelectedDate && !state.conditionRecords.some((record) => record.entryDate === state.conditionSelectedDate)) {
+      state.conditionDetailMode = 'view';
+    }
     if (!state.conditionSelectedDate && state.conditionRecords[0]) {
       state.conditionSelectedDate = state.conditionRecords[0].entryDate;
       state.conditionCalendarMonth = state.conditionSelectedDate.slice(0, 7);
@@ -1842,6 +1846,7 @@
 
   function buildConditionDetail(record) {
     const selectedDateLabel = state.conditionSelectedDate ? formatDiaryDateLabel(state.conditionSelectedDate) : '日付未選択';
+    const isEditing = Boolean(record) && state.conditionDetailMode === 'edit';
     return `
       <section class="card">
         <div class="condition-detail-header">
@@ -1851,7 +1856,40 @@
           </div>
           ${record ? '<span class="condition-status-badge">入力あり</span>' : '<span class="condition-status-badge muted">未入力</span>'}
         </div>
-        ${record ? `
+        ${record ? (isEditing ? `
+          <form id="conditionDetailEditForm">
+            <div class="inline-fields">
+              <div class="form-row">
+                <label for="conditionDetailStatus">体調</label>
+                <select id="conditionDetailStatus" name="conditionStatus" required>
+                  ${conditionStatusOptions.map((option) => `<option value="${option.value}" ${record.conditionStatus === option.value ? 'selected' : ''}>${option.label}</option>`).join('')}
+                </select>
+              </div>
+              <div class="form-row">
+                <label for="conditionDetailFatigue">疲労度</label>
+                <select id="conditionDetailFatigue" name="fatigueLevel" required>
+                  ${fatigueLevelOptions.map((option) => `<option value="${option.value}" ${record.fatigueLevel === option.value ? 'selected' : ''}>${option.label}</option>`).join('')}
+                </select>
+              </div>
+            </div>
+            <div class="inline-fields">
+              <div class="form-row">
+                <label for="conditionDetailWeight">体重</label>
+                <input id="conditionDetailWeight" name="weight" type="number" inputmode="numeric" step="1" min="0" required value="${escapeHtml(String(record.weight))}" placeholder="整数で入力" />
+              </div>
+              <div class="form-row">
+                <label for="conditionDetailSleepHours">睡眠時間</label>
+                <input id="conditionDetailSleepHours" name="sleepHours" type="number" inputmode="numeric" step="1" min="0" max="24" required value="${escapeHtml(String(record.sleepHours))}" placeholder="整数で入力" />
+              </div>
+            </div>
+            <div class="actions">
+              <button class="button-primary" type="submit">保存する</button>
+              <button class="button-secondary" type="button" id="conditionDetailCancelBtn">キャンセル</button>
+              <button class="button-danger" type="button" id="conditionDetailDeleteBtn">削除する</button>
+            </div>
+            <div id="conditionDetailMessage" class="small"></div>
+          </form>
+        ` : `
           <div class="grid">
             <div class="stat-card">
               <div class="stat-label">体調</div>
@@ -1870,30 +1908,15 @@
               <div class="stat-value">${escapeHtml(String(record.sleepHours))}時間</div>
             </div>
           </div>
-          <div class="meta">更新: ${escapeHtml(String(record.updatedAt || '').replace('T', ' ').slice(0, 16) || '未更新')}</div>
-        ` : '<div class="small">選択した日付の体調データはまだありません。</div>'}
-      </section>
-    `;
-  }
-
-  function buildConditionRecordList(records) {
-    return `
-      <section class="card">
-        <div class="diary-list-header">
-          <div>
-            <h2>入力履歴</h2>
-            <div class="small">保存済み ${records.length}件</div>
-          </div>
-        </div>
-        ${records.length === 0 ? '<div class="small">まだ体調データがありません。</div>' : records.map((record) => `
-          <button type="button" class="list-item condition-list-item ${state.conditionSelectedDate === record.entryDate ? 'is-selected' : ''}" data-condition-select-date="${record.entryDate}">
-            <div class="condition-list-main">
-              <strong>${escapeHtml(formatDiaryDateLabel(record.entryDate))}</strong>
-              <div class="meta">体調 ${escapeHtml(getConditionStatusLabel(record.conditionStatus, record))} / 体重 ${escapeHtml(String(record.weight))}kg / 睡眠 ${escapeHtml(String(record.sleepHours))}時間 / 疲労度 ${escapeHtml(getFatigueLevelLabel(record.fatigueLevel, record))}</div>
+          <div class="condition-detail-footer">
+            <div class="meta">更新: ${escapeHtml(String(record.updatedAt || '').replace('T', ' ').slice(0, 16) || '未更新')}</div>
+            <div class="actions">
+              <button class="button-secondary" type="button" id="conditionDetailEditBtn">編集する</button>
+              <button class="button-danger" type="button" id="conditionDetailDeleteBtn">削除する</button>
             </div>
-            <span class="inline-link">詳細を見る</span>
-          </button>
-        `).join('')}
+          </div>
+          <div id="conditionDetailMessage" class="small"></div>
+        `) : '<div class="small">選択した日付の体調データはまだありません。</div>'}
       </section>
     `;
   }
@@ -1920,7 +1943,7 @@
       <section class="card role-hero">
         <div class="hero-kicker">選手専用</div>
         <h2>体調</h2>
-        <p class="small">日ごとの体調を整数入力で記録し、カレンダーと一覧から振り返れます。</p>
+        <p class="small">日ごとの体調を整数入力で記録し、カレンダーと当日の詳細から確認できます。</p>
       </section>
       <section class="card">
         <h2>体調を入力</h2>
@@ -1962,7 +1985,6 @@
       </section>
       ${buildConditionDetail(selectedRecord)}
       ${buildConditionCalendar(state.conditionRecords)}
-      ${buildConditionRecordList(state.conditionRecords)}
     `;
 
     const form = qs('conditionRecordForm');
@@ -1987,6 +2009,7 @@
         message.textContent = '体調データを保存しました。';
         state.conditionSelectedDate = payload.entryDate;
         state.conditionCalendarMonth = payload.entryDate.slice(0, 7);
+        state.conditionDetailMode = 'view';
         await renderConditionCheck();
       } catch (error) {
         message.className = 'small error-text';
@@ -1997,6 +2020,7 @@
     qs('conditionTodayBtn')?.addEventListener('click', () => {
       state.conditionSelectedDate = new Date().toISOString().slice(0, 10);
       state.conditionCalendarMonth = state.conditionSelectedDate.slice(0, 7);
+      state.conditionDetailMode = 'view';
       renderConditionCheck({ reload: false });
     });
 
@@ -2009,12 +2033,73 @@
       });
     });
 
-    root.querySelectorAll('[data-condition-date], [data-condition-select-date]').forEach((button) => {
+    qs('conditionDetailEditBtn')?.addEventListener('click', () => {
+      state.conditionDetailMode = 'edit';
+      renderConditionCheck({ reload: false });
+    });
+
+    qs('conditionDetailCancelBtn')?.addEventListener('click', () => {
+      state.conditionDetailMode = 'view';
+      renderConditionCheck({ reload: false });
+    });
+
+    qs('conditionDetailDeleteBtn')?.addEventListener('click', async () => {
+      if (!state.conditionSelectedDate) return;
+      if (!window.confirm(`${formatDiaryDateLabel(state.conditionSelectedDate)}の体調データを削除しますか？`)) return;
+      const detailMessage = qs('conditionDetailMessage');
+      if (detailMessage) {
+        detailMessage.className = 'small';
+        detailMessage.textContent = '削除中です...';
+      }
+      try {
+        await api(`/api/condition-records/${encodeURIComponent(state.conditionSelectedDate)}`, { method: 'DELETE' });
+        state.conditionDetailMode = 'view';
+        await renderConditionCheck();
+      } catch (error) {
+        if (detailMessage) {
+          detailMessage.className = 'small error-text';
+          detailMessage.textContent = error.message;
+        } else {
+          window.alert(error.message);
+        }
+      }
+    });
+
+    qs('conditionDetailEditForm')?.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const detailForm = event.currentTarget;
+      const detailMessage = qs('conditionDetailMessage');
+      const payload = {
+        entryDate: state.conditionSelectedDate,
+        conditionStatus: detailForm.conditionStatus.value,
+        weight: detailForm.weight.value,
+        sleepHours: detailForm.sleepHours.value,
+        fatigueLevel: detailForm.fatigueLevel.value,
+      };
+      detailMessage.className = 'small';
+      detailMessage.textContent = '保存中です...';
+      try {
+        await api('/api/condition-records', {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        });
+        detailMessage.className = 'small success-text';
+        detailMessage.textContent = '当日の体調データを更新しました。';
+        state.conditionDetailMode = 'view';
+        await renderConditionCheck();
+      } catch (error) {
+        detailMessage.className = 'small error-text';
+        detailMessage.textContent = error.message;
+      }
+    });
+
+    root.querySelectorAll('[data-condition-date]').forEach((button) => {
       button.addEventListener('click', () => {
-        state.conditionSelectedDate = button.dataset.conditionDate || button.dataset.conditionSelectDate || '';
+        state.conditionSelectedDate = button.dataset.conditionDate || '';
         if (state.conditionSelectedDate) {
           state.conditionCalendarMonth = state.conditionSelectedDate.slice(0, 7);
         }
+        state.conditionDetailMode = 'view';
         renderConditionCheck({ reload: false });
       });
     });
