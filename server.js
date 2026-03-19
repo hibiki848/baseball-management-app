@@ -10,6 +10,7 @@ const {
   deleteDiaryNote,
   deleteUserAccount,
   findBig3RecordByUserId,
+  findConditionRecordByUserAndDate,
   findDiaryNoteById,
   findGameById,
   findUserByEmail,
@@ -17,6 +18,7 @@ const {
   getCounts,
   initDatabase,
   listBig3Records,
+  listConditionRecords,
   listDiaryNotes,
   listGames,
   listScorebookUploads,
@@ -25,6 +27,7 @@ const {
   sessionStore,
   updateDiaryNote,
   upsertBig3Record,
+  upsertConditionRecord,
   upsertStatEntry,
   updateUserProfile,
 } = require('./db/mysql');
@@ -159,6 +162,68 @@ function validateBig3Input(rawInput = {}) {
     normalized[key] = value;
   }
   return { values: normalized };
+}
+
+const CONDITION_STATUS_LABELS = {
+  poor: '不良',
+  normal: '普通',
+  good: '良好',
+};
+const FATIGUE_LEVEL_LABELS = {
+  low: '低',
+  medium: '中',
+  high: '高',
+};
+const ALLOWED_CONDITION_STATUSES = new Set(Object.keys(CONDITION_STATUS_LABELS));
+const ALLOWED_FATIGUE_LEVELS = new Set(Object.keys(FATIGUE_LEVEL_LABELS));
+
+function parseInteger(value) {
+  if (value === '' || value == null) return null;
+  const parsed = Number(value);
+  return Number.isInteger(parsed) ? parsed : null;
+}
+
+function validateConditionRecordInput(rawInput = {}) {
+  const entryDate = String(rawInput.entryDate || '').trim();
+  const conditionStatus = String(rawInput.conditionStatus || '').trim();
+  const fatigueLevel = String(rawInput.fatigueLevel || '').trim();
+  const weight = parseInteger(rawInput.weight);
+  const sleepHours = parseInteger(rawInput.sleepHours);
+
+  if (!entryDate) {
+    return { error: '日付を入力してください。' };
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(entryDate) || !isValidIsoDate(entryDate)) {
+    return { error: '実在する日付を入力してください。' };
+  }
+  if (!ALLOWED_CONDITION_STATUSES.has(conditionStatus)) {
+    return { error: '体調を選択してください。' };
+  }
+  if (weight == null) {
+    return { error: '体重は整数で入力してください。' };
+  }
+  if (weight < 0 || weight > 300) {
+    return { error: '体重は0〜300の整数で入力してください。' };
+  }
+  if (sleepHours == null) {
+    return { error: '睡眠時間は整数で入力してください。' };
+  }
+  if (sleepHours < 0 || sleepHours > 24) {
+    return { error: '睡眠時間は0〜24の整数で入力してください。' };
+  }
+  if (!ALLOWED_FATIGUE_LEVELS.has(fatigueLevel)) {
+    return { error: '疲労度を選択してください。' };
+  }
+
+  return {
+    values: {
+      entryDate,
+      conditionStatus,
+      weight,
+      sleepHours,
+      fatigueLevel,
+    },
+  };
 }
 
 function calculateBig3Total(record) {
@@ -967,6 +1032,35 @@ app.delete('/api/diary-notes/:id', requireRole(['player']), async (req, res) => 
   return res.status(200).json({ message: '野球日誌を削除しました。' });
 });
 
+app.get('/api/condition-records', requireRole(['player']), async (req, res) => {
+  const records = await listConditionRecords({ userId: req.session.user.id });
+  return res.status(200).json({ records });
+});
+
+app.post('/api/condition-records', requireRole(['player']), async (req, res) => {
+  const validation = validateConditionRecordInput(req.body);
+  if (validation.error) {
+    return res.status(400).json({ message: validation.error });
+  }
+
+  const existingRecord = await findConditionRecordByUserAndDate(req.session.user.id, validation.values.entryDate);
+  const record = await upsertConditionRecord({
+    userId: req.session.user.id,
+    ...validation.values,
+    createdBy: existingRecord ? existingRecord.createdBy : req.session.user.id,
+    updatedBy: req.session.user.id,
+  });
+
+  return res.status(existingRecord ? 200 : 201).json({
+    message: existingRecord ? '体調データを更新しました。' : '体調データを保存しました。',
+    record,
+    labels: {
+      conditionStatus: CONDITION_STATUS_LABELS[record.conditionStatus] || record.conditionStatus,
+      fatigueLevel: FATIGUE_LEVEL_LABELS[record.fatigueLevel] || record.fatigueLevel,
+    },
+  });
+});
+
 app.post('/api/stats/scorebook-preview', requireRole(['manager']), async (req, res) => {
   const gameId = Number(req.body.gameId);
   const imageDataUrl = String(req.body.imageDataUrl || '');
@@ -1018,6 +1112,17 @@ app.use((req, res, next) => {
   }
   if (!req.session.user) {
     return res.redirect('/login.html');
+  }
+  const roleProtectedPages = {
+    '/diary.html': ['player'],
+    '/player.html': ['player'],
+    '/condition-check.html': ['player'],
+    '/manager.html': ['manager'],
+    '/coach.html': ['coach'],
+  };
+  const allowedRoles = roleProtectedPages[req.path];
+  if (allowedRoles && !allowedRoles.includes(req.session.user.role)) {
+    return res.redirect('/index.html');
   }
   return next();
 });
