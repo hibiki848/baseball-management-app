@@ -486,8 +486,10 @@
           body: JSON.stringify({ personalGoal: input.value }),
         });
         state.user = payload.user;
-        await refreshData();
-        const savedGoal = String((state.dashboard && state.dashboard.user && state.dashboard.user.profile && state.dashboard.user.profile.personalGoal) || '');
+        if (state.dashboard) {
+          state.dashboard.user = payload.user;
+        }
+        const savedGoal = String((payload.user && payload.user.profile && payload.user.profile.personalGoal) || '');
         const status = qs('personalGoalStatus');
         if (status) status.textContent = savedGoal ? `保存済み: ${savedGoal}` : 'まだ個人目標は未入力です。';
         if (input) input.value = savedGoal;
@@ -1016,14 +1018,13 @@
     await refreshData();
     const { user, recentGame, teamSummary, personalSummary, rankings, playerSummaries, big3 } = state.dashboard;
     const sections = [buildRoleHero(user)];
-    if (user.role === 'player') sections.push(buildPersonalGoalCard(user));
+    if (user.role === 'player') {
+      sections.push(buildPersonalGoalCard(user));
+    }
     sections.push(buildRecentGameCard(recentGame), buildBig3RankingCard(big3));
     if (user.role !== 'manager') sections.push(buildPersonalSummaryCard(personalSummary, user));
     sections.push(buildTeamSummaryCard(teamSummary));
-    if (user.role === 'manager') {
-      sections.push(buildPlayerSummaryTable(playerSummaries));
-    }
-    if (user.role === 'coach') {
+    if (user.role === 'manager' || user.role === 'coach') {
       sections.push(buildPlayerSummaryTable(playerSummaries));
     }
     sections.push(buildRankingCard(rankings));

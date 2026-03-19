@@ -63,6 +63,12 @@ function parseJson(value, fallback) {
   }
 }
 
+function normalizeProfile(value) {
+  const parsed = parseJson(value, {});
+  if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') return {};
+  return parsed;
+}
+
 function parseNullableNumber(value) {
   if (value == null || value === '') return null;
   const parsed = Number(value);
@@ -146,7 +152,7 @@ function mapUser(row) {
     email: row.email,
     role: row.role,
     passwordHash: row.password_hash,
-    profile: parseJson(row.profile_json, {}),
+    profile: normalizeProfile(row.profile_json),
     createdAt: normalizeDateTime(row.created_at),
   };
 }
@@ -223,17 +229,29 @@ async function initDatabase() {
   }
 
   const [columnRows] = await pool.query(
-    `SELECT COUNT(*) AS count
+    `SELECT TABLE_NAME, COLUMN_NAME
      FROM INFORMATION_SCHEMA.COLUMNS
      WHERE TABLE_SCHEMA = DATABASE()
-       AND TABLE_NAME = 'games'
-       AND COLUMN_NAME = 'game_type'`,
+       AND (
+         (TABLE_NAME = 'games' AND COLUMN_NAME = 'game_type')
+         OR (TABLE_NAME = 'users' AND COLUMN_NAME = 'profile_json')
+       )`,
   );
 
-  if (Number(columnRows[0]?.count || 0) === 0) {
+  const hasGameTypeColumn = columnRows.some((row) => row.TABLE_NAME === 'games' && row.COLUMN_NAME === 'game_type');
+  const hasProfileJsonColumn = columnRows.some((row) => row.TABLE_NAME === 'users' && row.COLUMN_NAME === 'profile_json');
+
+  if (!hasGameTypeColumn) {
     await pool.query(
       `ALTER TABLE games
        ADD COLUMN game_type ENUM('official', 'practice', 'intrasquad') NOT NULL DEFAULT 'official' AFTER location`,
+    );
+  }
+
+  if (!hasProfileJsonColumn) {
+    await pool.query(
+      `ALTER TABLE users
+       ADD COLUMN profile_json JSON NULL AFTER password_hash`,
     );
   }
 
@@ -241,6 +259,12 @@ async function initDatabase() {
     `UPDATE games
      SET game_type = 'official'
      WHERE game_type IS NULL OR game_type = ''`,
+  );
+
+  await pool.query(
+    `UPDATE users
+     SET profile_json = JSON_OBJECT()
+     WHERE profile_json IS NULL`,
   );
 }
 
@@ -274,7 +298,7 @@ async function createUser({ name, email, role, passwordHash, profile }) {
   const [result] = await pool.query(
     `INSERT INTO users (name, email, role, password_hash, profile_json)
      VALUES (?, ?, ?, ?, ?)`,
-    [name, email, role, passwordHash, JSON.stringify(profile || {})],
+    [name, email, role, passwordHash, JSON.stringify(normalizeProfile(profile))],
   );
   return findUserById(result.insertId);
 }
@@ -284,7 +308,7 @@ async function updateUserProfile(userId, profile) {
     `UPDATE users
      SET profile_json = ?
      WHERE id = ?`,
-    [JSON.stringify(profile || {}), userId],
+    [JSON.stringify(normalizeProfile(profile)), userId],
   );
   return findUserById(userId);
 }

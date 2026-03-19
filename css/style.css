@@ -319,18 +319,21 @@ button,
 
 .goal-card-footer {
   display: flex;
-  align-items: flex-end;
+  align-items: flex-start;
   justify-content: space-between;
-  gap: 12px;
+  gap: 16px;
 }
 
 .goal-status {
-  flex: 1;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .goal-save-button {
   width: auto;
   min-width: 132px;
+  flex-shrink: 0;
 }
 
 .big3-rank-main {
