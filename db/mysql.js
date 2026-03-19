@@ -4,7 +4,11 @@ const mysql = require('mysql2/promise');
 const session = require('express-session');
 
 const migrationsDir = path.join(__dirname, 'migrations');
-const requiredMigrationFiles = ['20260318_create_mysql_persistence.sql', '20260318_add_big3_records.sql'];
+const requiredMigrationFiles = [
+  '20260318_create_mysql_persistence.sql',
+  '20260318_add_big3_records.sql',
+  '20260319_add_baseball_diary_notes.sql',
+];
 
 function buildPoolOptions() {
   const connectionUrl = process.env.DATABASE_URL || process.env.MYSQL_URL || process.env.MYSQL_PUBLIC_URL || '';
@@ -215,6 +219,23 @@ function mapBig3Record(row) {
     squat: parseNullableNumber(row.squat),
     deadlift: parseNullableNumber(row.deadlift),
     recordedAt: normalizeDateTime(row.recorded_at),
+    updatedAt: normalizeDateTime(row.updated_at),
+  };
+}
+
+function mapDiaryNote(row) {
+  if (!row) return null;
+  return {
+    id: Number(row.id),
+    userId: Number(row.user_id),
+    entryDate: normalizeDate(row.entry_date),
+    body: row.body || '',
+    tags: parseJson(row.tags_json, []),
+    coachComments: parseJson(row.coach_comments_json, []),
+    coachStamps: parseJson(row.coach_stamps_json, []),
+    createdBy: row.created_by == null ? null : Number(row.created_by),
+    updatedBy: row.updated_by == null ? null : Number(row.updated_by),
+    createdAt: normalizeDateTime(row.created_at),
     updatedAt: normalizeDateTime(row.updated_at),
   };
 }
@@ -457,6 +478,87 @@ async function upsertBig3Record({ userId, benchPress, squat, deadlift }) {
   return findBig3RecordByUserId(userId);
 }
 
+async function listDiaryNotes(filters = {}) {
+  const clauses = [];
+  const values = [];
+  if (filters.userId != null) {
+    clauses.push('user_id = ?');
+    values.push(filters.userId);
+  }
+  if (filters.entryDate) {
+    clauses.push('entry_date = ?');
+    values.push(filters.entryDate);
+  }
+  const whereClause = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
+  const [rows] = await pool.query(
+    `SELECT *
+     FROM baseball_diary_notes
+     ${whereClause}
+     ORDER BY entry_date DESC, updated_at DESC, id DESC`,
+    values,
+  );
+  return rows.map(mapDiaryNote);
+}
+
+async function findDiaryNoteById(id) {
+  const [rows] = await pool.query('SELECT * FROM baseball_diary_notes WHERE id = ? LIMIT 1', [id]);
+  return mapDiaryNote(rows[0]);
+}
+
+async function createDiaryNote({ userId, entryDate, body, tags, coachComments, coachStamps, createdBy, updatedBy }) {
+  const [result] = await pool.query(
+    `INSERT INTO baseball_diary_notes (
+      user_id,
+      entry_date,
+      body,
+      tags_json,
+      coach_comments_json,
+      coach_stamps_json,
+      created_by,
+      updated_by
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      userId,
+      entryDate,
+      body,
+      JSON.stringify(tags || []),
+      JSON.stringify(coachComments || []),
+      JSON.stringify(coachStamps || []),
+      createdBy,
+      updatedBy,
+    ],
+  );
+  return findDiaryNoteById(result.insertId);
+}
+
+async function updateDiaryNote(id, { entryDate, body, tags, coachComments, coachStamps, updatedBy }) {
+  await pool.query(
+    `UPDATE baseball_diary_notes
+     SET entry_date = ?,
+         body = ?,
+         tags_json = ?,
+         coach_comments_json = ?,
+         coach_stamps_json = ?,
+         updated_by = ?,
+         updated_at = CURRENT_TIMESTAMP
+     WHERE id = ?`,
+    [
+      entryDate,
+      body,
+      JSON.stringify(tags || []),
+      JSON.stringify(coachComments || []),
+      JSON.stringify(coachStamps || []),
+      updatedBy,
+      id,
+    ],
+  );
+  return findDiaryNoteById(id);
+}
+
+async function deleteDiaryNote(id) {
+  await pool.query('DELETE FROM baseball_diary_notes WHERE id = ?', [id]);
+}
+
 async function closeDatabase() {
   sessionStore.close();
   await pool.end();
@@ -465,9 +567,12 @@ async function closeDatabase() {
 module.exports = {
   closeDatabase,
   createGame,
+  createDiaryNote,
   createScorebookUpload,
   createUser,
+  deleteDiaryNote,
   deleteUserAccount,
+  findDiaryNoteById,
   updateUserProfile,
   findBig3RecordByUserId,
   findGameById,
@@ -476,12 +581,14 @@ module.exports = {
   getCounts,
   initDatabase,
   listBig3Records,
+  listDiaryNotes,
   listGames,
   listScorebookUploads,
   listStatEntries,
   listUsers,
   pool,
   sessionStore,
+  updateDiaryNote,
   upsertBig3Record,
   upsertStatEntry,
 };

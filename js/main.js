@@ -5,9 +5,15 @@
     games: [],
     players: [],
     entries: [],
+    diaryNotes: [],
     currentGame: null,
     scorebookUpload: null,
     activeBig3Tab: 'benchPress',
+    diarySortOrder: 'desc',
+    diarySearchQuery: '',
+    diarySelectedDate: '',
+    diaryCalendarMonth: new Date().toISOString().slice(0, 7),
+    diaryEditingNoteId: null,
   };
 
   const big3Fields = [
@@ -126,6 +132,59 @@
       .replaceAll("'", '&#39;');
   }
 
+  function normalizeDiaryTags(value) {
+    const source = Array.isArray(value)
+      ? value
+      : String(value || '')
+          .split(/[,\n、]/)
+          .map((item) => item.trim());
+    return [...new Set(source.map((item) => String(item || '').trim()).filter(Boolean))];
+  }
+
+  function getDiaryTagInputValue(tags) {
+    return (Array.isArray(tags) ? tags : []).join(', ');
+  }
+
+  function formatDiaryExcerpt(body, maxLength = 80) {
+    const normalized = String(body || '').replace(/\s+/g, ' ').trim();
+    if (normalized.length <= maxLength) return normalized;
+    return `${normalized.slice(0, maxLength)}…`;
+  }
+
+  function formatDiaryDateLabel(dateString) {
+    if (!dateString) return '日付未設定';
+    const date = new Date(`${dateString}T00:00:00`);
+    if (Number.isNaN(date.getTime())) return dateString;
+    return date.toLocaleDateString('ja-JP', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' });
+  }
+
+  function compareDiaryNotes(a, b, sortOrder) {
+    const left = `${a.entryDate || ''} ${a.updatedAt || ''} ${String(a.id || '').padStart(8, '0')}`;
+    const right = `${b.entryDate || ''} ${b.updatedAt || ''} ${String(b.id || '').padStart(8, '0')}`;
+    return sortOrder === 'asc' ? left.localeCompare(right) : right.localeCompare(left);
+  }
+
+  function getFilteredDiaryNotes() {
+    const searchTerm = String(state.diarySearchQuery || '').trim().toLowerCase();
+    return [...state.diaryNotes]
+      .filter((note) => {
+        if (state.diarySelectedDate && note.entryDate !== state.diarySelectedDate) return false;
+        if (!searchTerm) return true;
+        const tagText = (note.tags || []).join(' ').toLowerCase();
+        return String(note.body || '').toLowerCase().includes(searchTerm) || tagText.includes(searchTerm);
+      })
+      .sort((a, b) => compareDiaryNotes(a, b, state.diarySortOrder));
+  }
+
+  function getDiaryNoteCountsByDate(notes) {
+    return notes.reduce((map, note) => {
+      const key = note.entryDate;
+      if (!key) return map;
+      map.set(key, (map.get(key) || 0) + 1);
+      return map;
+    }, new Map());
+  }
+
   async function api(path, options = {}) {
     const res = await fetch(path, {
       credentials: 'include',
@@ -155,8 +214,35 @@
     return AppRoles.getRoleLabel(role);
   }
 
-  function setupNav() {
+  async function setupNav() {
+    const user = state.user || (await fetchCurrentUser());
+    const nav = document.querySelector('.bottom-nav');
+    if (!nav || !user) return;
     const current = document.body.dataset.page;
+    const rolePage = document.body.dataset.rolePage;
+    const defaultInputHref = user.role === 'coach' ? 'coach.html' : 'condition.html';
+    const defaultInputPage = user.role === 'coach' ? 'coach' : 'condition';
+    const inputHref = rolePage && ['coach', 'manager', 'player'].includes(rolePage)
+      ? `${rolePage}.html`
+      : defaultInputHref;
+    const inputPage = rolePage && ['coach', 'manager', 'player'].includes(rolePage)
+      ? rolePage
+      : defaultInputPage;
+    const inputLabel = user.role === 'coach' ? '確認' : '入力';
+    const links = [
+      { href: 'index.html', page: 'home', label: 'ホーム' },
+      { href: 'games.html', page: 'games', label: '試合' },
+      { href: inputHref, page: inputPage, label: inputLabel },
+    ];
+    if (user.role === 'player') {
+      links.push({ href: 'diary.html', page: 'diary', label: '野球日誌' });
+    }
+    links.push({ href: 'settings.html', page: 'settings', label: '設定' });
+
+    nav.innerHTML = links.map((link) => `
+      <a href="${link.href}" data-page="${link.page}" class="${link.page === current ? 'active' : ''}">${link.label}</a>
+    `).join('');
+
     document.querySelectorAll('.bottom-nav a').forEach((link) => {
       if (link.dataset.page === current) {
         link.classList.add('active');
@@ -1087,6 +1173,16 @@
     state.user = dashboard.user;
   }
 
+  async function refreshDiaryNotes() {
+    const user = state.user || (await fetchCurrentUser());
+    if (!user || user.role !== 'player') {
+      state.diaryNotes = [];
+      return;
+    }
+    const payload = await api('/api/diary-notes');
+    state.diaryNotes = payload.notes || [];
+  }
+
   async function renderHome() {
     const root = qs('homeRoot');
     if (!root) return;
@@ -1325,6 +1421,286 @@
     if (state.scorebookUpload) renderScorebookPreview(state.scorebookUpload);
   }
 
+  function buildDiaryCalendar(notes) {
+    const [yearValue, monthValue] = String(state.diaryCalendarMonth || new Date().toISOString().slice(0, 7)).split('-');
+    const year = Number(yearValue);
+    const monthIndex = Number(monthValue) - 1;
+    const monthStart = new Date(year, monthIndex, 1);
+    const monthEnd = new Date(year, monthIndex + 1, 0);
+    const startOffset = monthStart.getDay();
+    const countsByDate = getDiaryNoteCountsByDate(notes);
+    const cells = [];
+
+    for (let i = 0; i < startOffset; i += 1) {
+      cells.push('<div class="calendar-day is-empty" aria-hidden="true"></div>');
+    }
+
+    for (let day = 1; day <= monthEnd.getDate(); day += 1) {
+      const isoDate = `${yearValue}-${String(monthIndex + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      const noteCount = countsByDate.get(isoDate) || 0;
+      const isSelected = state.diarySelectedDate === isoDate;
+      const isToday = isoDate === new Date().toISOString().slice(0, 10);
+      cells.push(`
+        <button
+          type="button"
+          class="calendar-day ${noteCount > 0 ? 'has-note' : ''} ${isSelected ? 'is-selected' : ''} ${isToday ? 'is-today' : ''}"
+          data-diary-date="${isoDate}"
+          aria-pressed="${String(isSelected)}"
+        >
+          <span class="calendar-day-number">${day}</span>
+          ${noteCount > 0 ? `<span class="calendar-day-count">${noteCount}件</span>` : '<span class="calendar-day-count placeholder">　</span>'}
+        </button>
+      `);
+    }
+
+    return `
+      <section class="card">
+        <div class="diary-calendar-header">
+          <div>
+            <h2>カレンダー</h2>
+            <div class="small">ノートがある日は件数バッジを表示します。</div>
+          </div>
+          <div class="calendar-month-nav">
+            <button type="button" class="button-secondary" data-diary-calendar-nav="-1">前月</button>
+            <strong>${monthStart.toLocaleDateString('ja-JP', { year: 'numeric', month: 'long' })}</strong>
+            <button type="button" class="button-secondary" data-diary-calendar-nav="1">次月</button>
+          </div>
+        </div>
+        <div class="calendar-weekdays">
+          ${['日', '月', '火', '水', '木', '金', '土'].map((label) => `<div>${label}</div>`).join('')}
+        </div>
+        <div class="calendar-grid">${cells.join('')}</div>
+      </section>
+    `;
+  }
+
+  function buildDiaryNoteList(notes) {
+    const selectedDateLabel = state.diarySelectedDate ? formatDiaryDateLabel(state.diarySelectedDate) : 'すべての日付';
+    return `
+      <section class="card">
+        <div class="diary-list-header">
+          <div>
+            <h2>ノート一覧</h2>
+            <div class="small">対象日: ${escapeHtml(selectedDateLabel)} / ${notes.length}件</div>
+          </div>
+          ${state.diarySelectedDate ? '<button type="button" class="button-secondary diary-clear-date" id="diaryClearDateBtn">日付絞り込みを解除</button>' : ''}
+        </div>
+        ${notes.length === 0 ? '<div class="small">条件に一致する野球日誌はまだありません。</div>' : notes.map((note) => `
+          <article class="list-item diary-note-item">
+            <div class="diary-note-header">
+              <div>
+                <strong>${escapeHtml(formatDiaryDateLabel(note.entryDate))}</strong>
+                <div class="meta">更新: ${escapeHtml(String(note.updatedAt || '').replace('T', ' ').slice(0, 16) || '未更新')}</div>
+              </div>
+              <div class="diary-note-actions">
+                <button type="button" class="button-secondary" data-diary-edit="${note.id}">編集</button>
+                <button type="button" class="button-danger" data-diary-delete="${note.id}">削除</button>
+              </div>
+            </div>
+            <p class="diary-note-body">${escapeHtml(formatDiaryExcerpt(note.body, 140))}</p>
+            <div class="tag-list">
+              ${(note.tags || []).length ? note.tags.map((tag) => `<span class="tag-chip">#${escapeHtml(tag)}</span>`).join('') : '<span class="small">タグなし</span>'}
+            </div>
+            <div class="diary-feedback-grid">
+              <div class="diary-feedback-block">
+                <div class="stat-label">監督コメント</div>
+                ${(note.coachComments || []).length
+                  ? (note.coachComments || []).map((comment) => `<div class="meta">${escapeHtml(comment.author || '監督')}: ${escapeHtml(comment.body || '')}</div>`).join('')
+                  : '<div class="small">まだコメントはありません。</div>'}
+              </div>
+              <div class="diary-feedback-block">
+                <div class="stat-label">スタンプ</div>
+                ${(note.coachStamps || []).length
+                  ? `<div class="stamp-list">${(note.coachStamps || []).map((stamp) => `<span class="stamp-chip">${escapeHtml(stamp.label || stamp)}</span>`).join('')}</div>`
+                  : '<div class="small">まだスタンプはありません。</div>'}
+              </div>
+            </div>
+          </article>
+        `).join('')}
+      </section>
+    `;
+  }
+
+  async function renderDiary(options = {}) {
+    const root = qs('diaryRoot');
+    if (!root) return;
+    const user = state.user || (await fetchCurrentUser());
+    if (!user) {
+      window.location.href = 'login.html';
+      return;
+    }
+    if (user.role !== 'player') {
+      root.innerHTML = `
+        <section class="card">
+          <h2>野球日誌は選手専用です</h2>
+          <p class="small">監督・マネージャーでは利用できません。ホームに戻って他の機能をご利用ください。</p>
+          <div class="actions single-action">
+            <a class="button button-secondary" href="index.html">ホームへ戻る</a>
+          </div>
+        </section>
+      `;
+      return;
+    }
+
+    if (options.reload !== false) {
+      await refreshDiaryNotes();
+    }
+    const filteredNotes = getFilteredDiaryNotes();
+    const editingNote = state.diaryNotes.find((note) => note.id === state.diaryEditingNoteId) || null;
+
+    root.innerHTML = `
+      <section class="card role-hero">
+        <div class="hero-kicker">選手専用</div>
+        <h2>野球日誌</h2>
+        <p class="small">練習や試合の振り返りを日付・タグ付きで残し、カレンダーから見返せます。</p>
+      </section>
+      <section class="card">
+        <h2>${editingNote ? '野球日誌を編集' : '野球日誌を新規作成'}</h2>
+        <form id="diaryForm">
+          <input type="hidden" name="noteId" value="${editingNote ? editingNote.id : ''}" />
+          <div class="form-row">
+            <label for="diaryEntryDate">日付</label>
+            <input id="diaryEntryDate" name="entryDate" type="date" required value="${escapeHtml((editingNote && editingNote.entryDate) || state.diarySelectedDate || new Date().toISOString().slice(0, 10))}" />
+          </div>
+          <div class="form-row">
+            <label for="diaryBody">本文</label>
+            <textarea id="diaryBody" name="body" maxlength="4000" placeholder="今日の振り返り、課題、次回の意識を書く">${escapeHtml((editingNote && editingNote.body) || '')}</textarea>
+          </div>
+          <div class="form-row">
+            <label for="diaryTags">タグ</label>
+            <input id="diaryTags" name="tags" type="text" placeholder="例: 打撃, 守備, 練習試合" value="${escapeHtml(getDiaryTagInputValue((editingNote && editingNote.tags) || []))}" />
+            <div class="small">カンマ区切りで複数タグを設定できます。</div>
+          </div>
+          <div class="actions">
+            <button class="button-primary" type="submit">${editingNote ? '更新する' : '作成する'}</button>
+            <button class="button-secondary" type="button" id="diaryResetBtn">${editingNote ? '新規作成に戻す' : '入力をクリア'}</button>
+          </div>
+          <div id="diaryFormMessage" class="small"></div>
+        </form>
+      </section>
+      ${buildDiaryCalendar(state.diaryNotes)}
+      <section class="card">
+        <h2>検索・並び替え</h2>
+        <div class="inline-fields diary-filter-grid">
+          <div class="form-row">
+            <label for="diarySearch">検索</label>
+            <input id="diarySearch" type="search" placeholder="本文・タグで検索" value="${escapeHtml(state.diarySearchQuery)}" />
+          </div>
+          <div class="form-row">
+            <label for="diarySortOrder">並び替え</label>
+            <select id="diarySortOrder">
+              <option value="desc" ${state.diarySortOrder === 'desc' ? 'selected' : ''}>新しい順</option>
+              <option value="asc" ${state.diarySortOrder === 'asc' ? 'selected' : ''}>古い順</option>
+            </select>
+          </div>
+        </div>
+      </section>
+      ${buildDiaryNoteList(filteredNotes)}
+    `;
+
+    const form = qs('diaryForm');
+    const message = qs('diaryFormMessage');
+    form?.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const payload = {
+        entryDate: form.entryDate.value,
+        body: form.body.value,
+        tags: normalizeDiaryTags(form.tags.value),
+      };
+      const noteId = Number(form.noteId.value);
+      message.className = 'small';
+      message.textContent = '保存中です...';
+      try {
+        await api(noteId ? `/api/diary-notes/${noteId}` : '/api/diary-notes', {
+          method: noteId ? 'PUT' : 'POST',
+          body: JSON.stringify(payload),
+        });
+        message.className = 'small success-text';
+        message.textContent = noteId ? '野球日誌を更新しました。' : '野球日誌を作成しました。';
+        state.diaryEditingNoteId = null;
+        state.diarySelectedDate = payload.entryDate;
+        state.diaryCalendarMonth = payload.entryDate.slice(0, 7);
+        await renderDiary();
+      } catch (error) {
+        message.className = 'small error-text';
+        message.textContent = error.message;
+      }
+    });
+
+    qs('diaryResetBtn')?.addEventListener('click', () => {
+      state.diaryEditingNoteId = null;
+      renderDiary({ reload: false });
+    });
+
+    qs('diarySearch')?.addEventListener('input', (event) => {
+      const nextValue = event.target.value;
+      state.diarySearchQuery = nextValue;
+      renderDiary({ reload: false }).then(() => {
+        const input = qs('diarySearch');
+        if (!input) return;
+        input.focus();
+        input.setSelectionRange(nextValue.length, nextValue.length);
+      });
+    });
+
+    qs('diarySortOrder')?.addEventListener('change', (event) => {
+      state.diarySortOrder = event.target.value || 'desc';
+      renderDiary({ reload: false });
+    });
+
+    root.querySelectorAll('[data-diary-calendar-nav]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const [yearValue, monthValue] = String(state.diaryCalendarMonth).split('-');
+        const next = new Date(Number(yearValue), Number(monthValue) - 1 + Number(button.dataset.diaryCalendarNav || 0), 1);
+        state.diaryCalendarMonth = `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}`;
+        renderDiary({ reload: false });
+      });
+    });
+
+    root.querySelectorAll('[data-diary-date]').forEach((button) => {
+      button.addEventListener('click', () => {
+        state.diarySelectedDate = button.dataset.diaryDate || '';
+        state.diaryCalendarMonth = state.diarySelectedDate.slice(0, 7) || state.diaryCalendarMonth;
+        renderDiary({ reload: false });
+      });
+    });
+
+    qs('diaryClearDateBtn')?.addEventListener('click', () => {
+      state.diarySelectedDate = '';
+      renderDiary({ reload: false });
+    });
+
+    root.querySelectorAll('[data-diary-edit]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const noteId = Number(button.dataset.diaryEdit);
+        const targetNote = state.diaryNotes.find((note) => note.id === noteId);
+        if (!targetNote) return;
+        state.diaryEditingNoteId = noteId;
+        state.diarySelectedDate = targetNote.entryDate;
+        state.diaryCalendarMonth = targetNote.entryDate.slice(0, 7);
+        renderDiary({ reload: false }).then(() => {
+          qs('diaryBody')?.focus();
+        });
+      });
+    });
+
+    root.querySelectorAll('[data-diary-delete]').forEach((button) => {
+      button.addEventListener('click', async () => {
+        const noteId = Number(button.dataset.diaryDelete);
+        if (!window.confirm('この野球日誌を削除しますか？')) return;
+        try {
+          await api(`/api/diary-notes/${noteId}`, { method: 'DELETE' });
+          if (state.diaryEditingNoteId === noteId) {
+            state.diaryEditingNoteId = null;
+          }
+          await renderDiary();
+        } catch (error) {
+          window.alert(error.message);
+        }
+      });
+    });
+  }
+
   async function renderSettings() {
     if (!qs('settingsRoot')) return;
     const user = await fetchCurrentUser();
@@ -1473,7 +1849,7 @@
   document.addEventListener('DOMContentLoaded', async () => {
     const ok = await enforceSessionAccess();
     if (!ok) return;
-    setupNav();
+    await setupNav();
     bindLogin();
     await renderSettings();
     await renderHome();
@@ -1481,5 +1857,6 @@
     await renderGameDetail();
     await renderInputWorkspace();
     await renderRoleWorkspace();
+    await renderDiary();
   });
 })();
