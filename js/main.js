@@ -187,36 +187,44 @@
   }
 
   function bindDiaryNoteListActions(container) {
-    if (!container) return;
+    if (!container || container.dataset.diaryNoteListBound === 'true') return;
 
-    container.querySelectorAll('[data-diary-edit]').forEach((button) => {
-      button.addEventListener('click', () => {
-        const noteId = Number(button.dataset.diaryEdit);
+    container.dataset.diaryNoteListBound = 'true';
+    container.addEventListener('click', async (event) => {
+      const clearDateButton = event.target.closest('#diaryClearDateBtn');
+      if (clearDateButton) {
+        state.diarySelectedDate = '';
+        await renderDiary({ reload: false });
+        return;
+      }
+
+      const editButton = event.target.closest('[data-diary-edit]');
+      if (editButton) {
+        const noteId = Number(editButton.dataset.diaryEdit);
         const targetNote = state.diaryNotes.find((note) => note.id === noteId);
         if (!targetNote) return;
         state.diaryEditingNoteId = noteId;
         state.diarySelectedDate = targetNote.entryDate;
         state.diaryCalendarMonth = targetNote.entryDate.slice(0, 7);
-        renderDiary({ reload: false }).then(() => {
-          qs('diaryBody')?.focus();
-        });
-      });
-    });
+        await renderDiary({ reload: false });
+        qs('diaryBody')?.focus();
+        return;
+      }
 
-    container.querySelectorAll('[data-diary-delete]').forEach((button) => {
-      button.addEventListener('click', async () => {
-        const noteId = Number(button.dataset.diaryDelete);
-        if (!window.confirm('この野球日誌を削除しますか？')) return;
-        try {
-          await api(`/api/diary-notes/${noteId}`, { method: 'DELETE' });
-          if (state.diaryEditingNoteId === noteId) {
-            state.diaryEditingNoteId = null;
-          }
-          await renderDiary();
-        } catch (error) {
-          window.alert(error.message);
+      const deleteButton = event.target.closest('[data-diary-delete]');
+      if (!deleteButton) return;
+
+      const noteId = Number(deleteButton.dataset.diaryDelete);
+      if (!window.confirm('この野球日誌を削除しますか？')) return;
+      try {
+        await api(`/api/diary-notes/${noteId}`, { method: 'DELETE' });
+        if (state.diaryEditingNoteId === noteId) {
+          state.diaryEditingNoteId = null;
         }
-      });
+        await renderDiary();
+      } catch (error) {
+        window.alert(error.message);
+      }
     });
   }
 
@@ -1587,7 +1595,6 @@
     if (options.reload !== false) {
       await refreshDiaryNotes();
     }
-    const filteredNotes = getFilteredDiaryNotes();
     const editingNote = state.diaryNotes.find((note) => note.id === state.diaryEditingNoteId) || null;
 
     root.innerHTML = `
@@ -1637,9 +1644,7 @@
           </div>
         </div>
       </section>
-      <div id="diaryNoteListSection">
-        ${buildDiaryNoteList(filteredNotes)}
-      </div>
+      <div id="diaryNoteListSection"></div>
     `;
 
     const form = qs('diaryForm');
@@ -1676,22 +1681,21 @@
       renderDiary({ reload: false });
     });
 
-    const diarySearchInput = qs('diarySearch');
     const applyDiarySearch = (nextValue) => {
       state.diarySearchQuery = nextValue;
       updateDiaryNoteList();
     };
 
-    diarySearchInput?.addEventListener('compositionstart', () => {
+    qs('diarySearch')?.addEventListener('compositionstart', () => {
       state.diarySearchComposing = true;
     });
 
-    diarySearchInput?.addEventListener('compositionend', (event) => {
+    qs('diarySearch')?.addEventListener('compositionend', (event) => {
       state.diarySearchComposing = false;
       applyDiarySearch(event.target.value);
     });
 
-    diarySearchInput?.addEventListener('input', (event) => {
+    qs('diarySearch')?.addEventListener('input', (event) => {
       if (state.diarySearchComposing) return;
       applyDiarySearch(event.target.value);
     });
@@ -1700,6 +1704,8 @@
       state.diarySortOrder = event.target.value || 'desc';
       updateDiaryNoteList();
     });
+
+    updateDiaryNoteList();
 
     root.querySelectorAll('[data-diary-calendar-nav]').forEach((button) => {
       button.addEventListener('click', () => {
@@ -1718,12 +1724,6 @@
       });
     });
 
-    qs('diaryClearDateBtn')?.addEventListener('click', () => {
-      state.diarySelectedDate = '';
-      renderDiary({ reload: false });
-    });
-
-    bindDiaryNoteListActions(qs('diaryNoteListSection'));
   }
 
   async function renderSettings() {
