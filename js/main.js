@@ -1892,7 +1892,7 @@
               <h3>体重の推移</h3>
               <div class="small">${escapeHtml(formatDiaryDateLabel(getConditionWeightChartReferenceDate()))}までの記録</div>
             </div>
-            <div class="segmented-control" role="tablist" aria-label="体重推移の表示範囲切り替え">
+            <div class="segmented-control" aria-label="体重推移の表示範囲切り替え">
               ${rangeOptions.map((option) => `
                 <button
                   type="button"
@@ -1940,7 +1940,7 @@
             <h3>体重の推移</h3>
             <div class="small">${escapeHtml(activeDateLabel)}までの推移を表示しています。</div>
           </div>
-          <div class="segmented-control" role="tablist" aria-label="体重推移の表示範囲切り替え">
+          <div class="segmented-control" aria-label="体重推移の表示範囲切り替え">
             ${rangeOptions.map((option) => `
               <button
                 type="button"
@@ -2033,28 +2033,6 @@
     `;
   }
 
-  function buildConditionRecordList(records) {
-    return `
-      <section class="card">
-        <div class="diary-list-header">
-          <div>
-            <h2>入力履歴</h2>
-            <div class="small">保存済み ${records.length}件</div>
-          </div>
-        </div>
-        ${records.length === 0 ? '<div class="small">まだ体調データがありません。</div>' : records.map((record) => `
-          <button type="button" class="list-item condition-list-item ${state.conditionSelectedDate === record.entryDate ? 'is-selected' : ''}" data-condition-select-date="${record.entryDate}">
-            <div class="condition-list-main">
-              <strong>${escapeHtml(formatDiaryDateLabel(record.entryDate))}</strong>
-              <div class="meta">体調 ${escapeHtml(getConditionStatusLabel(record.conditionStatus, record))} / 体重 ${escapeHtml(String(record.weight))}kg / 睡眠 ${escapeHtml(String(record.sleepHours))}時間 / 疲労度 ${escapeHtml(getFatigueLevelLabel(record.fatigueLevel, record))}</div>
-            </div>
-            <span class="inline-link">詳細を見る</span>
-          </button>
-        `).join('')}
-      </section>
-    `;
-  }
-
   async function renderConditionCheck(options = {}) {
     const root = qs('conditionCheckRoot');
     if (!root) return;
@@ -2119,7 +2097,6 @@
       </section>
       ${buildConditionDetail(selectedRecord)}
       ${buildConditionCalendar(state.conditionRecords)}
-      ${buildConditionRecordList(state.conditionRecords)}
     `;
 
     const form = qs('conditionRecordForm');
