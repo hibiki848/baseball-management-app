@@ -881,6 +881,103 @@ button,
   margin-top: 18px;
 }
 
+.section-heading-row,
+.coach-player-summary-head,
+.coach-diary-list-head,
+.coach-diary-detail-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.coach-player-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.coach-player-summary-card {
+  display: grid;
+  gap: 10px;
+  text-decoration: none;
+  color: inherit;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 12px;
+  background: #fff;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.coach-player-summary-card:hover,
+.coach-player-summary-card:focus-visible {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(22, 75, 134, 0.12);
+  transform: translateY(-1px);
+  outline: none;
+}
+
+.coach-player-summary-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.summary-link-text,
+.inline-link {
+  color: var(--primary);
+  font-weight: 700;
+}
+
+.coach-diary-layout {
+  display: grid;
+  grid-template-columns: minmax(220px, 300px) minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.coach-diary-list {
+  display: grid;
+  gap: 8px;
+}
+
+.coach-diary-list-item {
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.coach-diary-list-item.is-selected,
+.coach-diary-list-item:hover,
+.coach-diary-list-item:focus-visible {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(22, 75, 134, 0.1);
+  outline: none;
+}
+
+.coach-diary-detail {
+  min-width: 0;
+}
+
+.coach-diary-detail-card {
+  margin-bottom: 0;
+}
+
+.coach-diary-excerpt,
+.coach-diary-detail-body {
+  margin: 8px 0 0;
+  line-height: 1.7;
+  white-space: pre-wrap;
+}
+
+.coach-diary-feedback-grid {
+  margin-top: 14px;
+}
+
+.diary-detail-comment + .diary-detail-comment {
+  margin-top: 8px;
+}
+
 @media (max-width: 720px) {
   .app { max-width: 100%; }
   .grid,
@@ -897,6 +994,10 @@ button,
   .diary-calendar-header,
   .diary-list-header,
   .diary-note-header,
+  .section-heading-row,
+  .coach-player-summary-head,
+  .coach-diary-list-head,
+  .coach-diary-detail-head,
   .coach-condition-section-header,
   .condition-detail-header,
   .condition-detail-footer,
@@ -919,6 +1020,12 @@ button,
 
   .coach-condition-list {
     grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
+  }
+
+  .coach-player-summary-grid,
+  .coach-player-summary-stats,
+  .coach-diary-layout {
+    grid-template-columns: 1fr;
   }
 
   .coach-condition-summary-grid {
