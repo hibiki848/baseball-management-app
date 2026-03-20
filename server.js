@@ -56,6 +56,13 @@ const GAME_TYPE_LABELS = {
   intrasquad: '紅白戦',
 };
 const ALLOWED_GAME_TYPES = new Set(Object.keys(GAME_TYPE_LABELS));
+const COACH_DIARY_STAMPS = Object.freeze([
+  'いいね',
+  'ナイス',
+  'おつかれ',
+  'ファイト',
+  'すごい',
+]);
 
 function normalizeGameType(value) {
   const normalized = String(value || '').trim();
@@ -142,6 +149,23 @@ function validateDiaryNoteInput(rawInput = {}) {
   }
 
   return { values: { entryDate, body, tags } };
+}
+
+function validateCoachDiaryReplyInput(rawInput = {}) {
+  const message = String(rawInput.message || '').trim();
+  const stamp = String(rawInput.stamp || '').trim();
+
+  if (!message && !stamp) {
+    return { error: '返信メッセージまたはスタンプを選択してください。' };
+  }
+  if (message.length > 500) {
+    return { error: '返信メッセージは500文字以内で入力してください。' };
+  }
+  if (stamp && !COACH_DIARY_STAMPS.includes(stamp)) {
+    return { error: '指定されたスタンプは利用できません。' };
+  }
+
+  return { values: { message, stamp } };
 }
 
 function validateBig3Input(rawInput = {}) {
@@ -977,6 +1001,30 @@ app.get('/api/diary-notes', requireRole(['player']), async (req, res) => {
   return res.status(200).json({ notes });
 });
 
+app.get('/api/coach/diary-notes', requireRole(['coach']), async (req, res) => {
+  const [notes, users] = await Promise.all([listDiaryNotes(), listUsers()]);
+  const playerMap = new Map(
+    users
+      .filter((user) => user.role === 'player')
+      .map((user) => [user.id, user]),
+  );
+
+  return res.status(200).json({
+    stampOptions: COACH_DIARY_STAMPS,
+    notes: notes
+      .filter((note) => playerMap.has(note.userId))
+      .map((note) => {
+        const player = playerMap.get(note.userId);
+        return {
+          ...note,
+          playerId: note.userId,
+          playerName: player?.name || `選手#${note.userId}`,
+          playerProfile: player?.profile || {},
+        };
+      }),
+  });
+});
+
 app.post('/api/diary-notes', requireRole(['player']), async (req, res) => {
   const validation = validateDiaryNoteInput(req.body);
   if (validation.error) {
@@ -1017,6 +1065,70 @@ app.put('/api/diary-notes/:id', requireRole(['player']), async (req, res) => {
     updatedBy: req.session.user.id,
   });
   return res.status(200).json({ message: '野球日誌を更新しました。', note });
+});
+
+app.post('/api/coach/diary-notes/:id/replies', requireRole(['coach']), async (req, res) => {
+  const noteId = Number(req.params.id);
+  if (!noteId) {
+    return res.status(400).json({ message: '対象ノートが不正です。' });
+  }
+
+  const existingNote = await findDiaryNoteById(noteId);
+  if (!existingNote) {
+    return res.status(404).json({ message: '対象の野球日誌が見つかりません。' });
+  }
+
+  const validation = validateCoachDiaryReplyInput(req.body);
+  if (validation.error) {
+    return res.status(400).json({ message: validation.error });
+  }
+
+  const repliedAt = new Date().toISOString();
+  const coachComments = [...(existingNote.coachComments || [])];
+  const coachStamps = [...(existingNote.coachStamps || [])];
+
+  if (validation.values.message) {
+    coachComments.push({
+      id: `comment-${Date.now()}`,
+      noteId,
+      playerId: existingNote.userId,
+      author: req.session.user.name || '監督',
+      body: validation.values.message,
+      repliedAt,
+    });
+  }
+
+  if (validation.values.stamp) {
+    coachStamps.push({
+      id: `stamp-${Date.now()}`,
+      noteId,
+      playerId: existingNote.userId,
+      label: validation.values.stamp,
+      author: req.session.user.name || '監督',
+      repliedAt,
+    });
+  }
+
+  const note = await updateDiaryNote(noteId, {
+    entryDate: existingNote.entryDate,
+    body: existingNote.body,
+    tags: existingNote.tags || [],
+    coachComments,
+    coachStamps,
+    updatedBy: req.session.user.id,
+  });
+
+  const player = await findUserById(existingNote.userId);
+  return res.status(200).json({
+    message: '野球日誌へ返信しました。',
+    stampOptions: COACH_DIARY_STAMPS,
+    note: {
+      ...note,
+      playerId: note.userId,
+      playerName: player?.name || `選手#${note.userId}`,
+      playerProfile: player?.profile || {},
+    },
+  });
 });
 
 app.delete('/api/diary-notes/:id', requireRole(['player']), async (req, res) => {
@@ -1070,6 +1182,36 @@ app.get('/api/team-condition-records', requireRole(['coach']), async (req, res) 
         conditionStatusLabel: CONDITION_STATUS_LABELS[record.conditionStatus] || record.conditionStatus,
         fatigueLevelLabel: FATIGUE_LEVEL_LABELS[record.fatigueLevel] || record.fatigueLevel,
       })),
+  });
+});
+
+app.get('/api/player-summaries/:playerId', requireRole(['coach']), async (req, res) => {
+  const playerId = Number(req.params.playerId);
+  if (!playerId) {
+    return res.status(400).json({ message: '対象選手が不正です。' });
+  }
+
+  const [player, games, entries] = await Promise.all([
+    findUserById(playerId),
+    listGames(),
+    listStatEntries(),
+  ]);
+
+  if (!player || player.role !== 'player') {
+    return res.status(404).json({ message: '対象の選手が見つかりません。' });
+  }
+
+  const gameTypeById = buildGameTypeMap(games);
+  const summary = await aggregateStatsForPlayer(player.id, entries, gameTypeById);
+
+  return res.status(200).json({
+    player: {
+      id: player.id,
+      name: player.name,
+      role: player.role,
+      ...(player.profile || {}),
+    },
+    summary,
   });
 });
 
@@ -1170,6 +1312,7 @@ app.use((req, res, next) => {
     '/manager.html': ['manager'],
     '/coach.html': ['coach'],
     '/coach-condition.html': ['coach'],
+    '/player-detail.html': ['coach'],
   };
   const allowedRoles = roleProtectedPages[req.path];
   if (allowedRoles && !allowedRoles.includes(req.session.user.role)) {
