@@ -1024,6 +1024,71 @@ button,
   align-items: start;
 }
 
+.coach-diary-layout-calendar {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.coach-diary-calendar-card,
+.coach-diary-detail-card {
+  display: grid;
+  gap: 14px;
+}
+
+.coach-diary-calendar-summary,
+.coach-diary-day-card-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.coach-diary-calendar-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: var(--primary-light);
+  color: var(--primary);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.coach-diary-calendar-day {
+  min-height: 96px;
+  gap: 10px;
+}
+
+.coach-diary-calendar-day .calendar-day-count.is-muted {
+  background: #f4f7fb;
+  color: #8a94a6;
+}
+
+.coach-diary-calendar-day.is-selected .calendar-day-count,
+.coach-diary-calendar-day.has-note.is-selected .calendar-day-count {
+  background: #fff;
+  color: var(--primary);
+}
+
+.coach-diary-day-card-list {
+  display: grid;
+  gap: 12px;
+}
+
+.coach-diary-day-card {
+  display: grid;
+  gap: 14px;
+}
+
+.coach-diary-day-card h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.coach-diary-reply-form {
+  display: grid;
+  gap: 12px;
+}
+
 .coach-diary-list {
   display: grid;
   gap: 10px;

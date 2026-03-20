@@ -30,6 +30,8 @@
     coachConditionWeightChartRange: 'all',
     coachDiaryNotes: [],
     coachDiarySelectedPlayerId: '',
+    coachDiarySelectedDate: '',
+    coachDiaryCalendarMonth: new Date().toISOString().slice(0, 7),
     coachDiarySelectedNoteId: null,
     coachDiaryStampOptions: ['いいね', 'ナイス', 'おつかれ', 'ファイト', 'すごい'],
     coachDiaryReplyDraft: '',
@@ -1979,25 +1981,26 @@
   }
 
   function buildCoachDiaryReplyForm(note) {
+    const suffix = `-${note.id}`;
     return `
-      <form id="coachDiaryReplyForm" class="coach-diary-reply-form">
+      <form class="coach-diary-reply-form" data-coach-diary-reply-form="${note.id}">
         <div class="form-row">
-          <label for="coachDiaryReplyMessage">監督からの返信</label>
-          <textarea id="coachDiaryReplyMessage" name="message" maxlength="500" placeholder="気づきや励ましのコメントを入力">${escapeHtml(state.coachDiaryReplyDraft)}</textarea>
+          <label for="coachDiaryReplyMessage${suffix}">監督からの返信</label>
+          <textarea id="coachDiaryReplyMessage${suffix}" name="message" maxlength="500" placeholder="気づきや励ましのコメントを入力"></textarea>
         </div>
         <div class="form-row">
-          <label for="coachDiaryStamp">スタンプ送信</label>
-          <select id="coachDiaryStamp" name="stamp">
+          <label for="coachDiaryStamp${suffix}">スタンプ送信</label>
+          <select id="coachDiaryStamp${suffix}" name="stamp">
             <option value="">選択してください</option>
             ${state.coachDiaryStampOptions.map((stamp) => `
-              <option value="${escapeHtml(stamp)}" ${state.coachDiarySelectedStamp === stamp ? 'selected' : ''}>${escapeHtml(stamp)}</option>
+              <option value="${escapeHtml(stamp)}">${escapeHtml(stamp)}</option>
             `).join('')}
           </select>
         </div>
         <div class="actions single-action">
           <button type="submit" class="button-primary" data-note-id="${note.id}">返信を送信</button>
         </div>
-        <div id="coachDiaryReplyMessageBox" class="small"></div>
+        <div class="small" data-coach-diary-reply-message></div>
       </form>
     `;
   }
@@ -2006,7 +2009,7 @@
     const selectedPlayerNotes = selectedPlayer ? getCoachDiaryNotesByPlayer(selectedPlayer.id) : notes;
     const totalComments = notes.reduce((count, note) => count + ((note.coachComments || []).length), 0);
     const totalStamps = notes.reduce((count, note) => count + ((note.coachStamps || []).length), 0);
-    const selectedNoteLabel = selectedNote ? formatDiaryDateLabel(selectedNote.entryDate) : '未選択';
+    const selectedNoteLabel = state.coachDiarySelectedDate ? formatDiaryDateLabel(state.coachDiarySelectedDate) : '未選択';
 
     return `
       <section class="card coach-diary-toolbar-card">
@@ -2097,86 +2100,169 @@
     `;
   }
 
-  function buildCoachDiaryListSection(notes, selectedPlayer) {
-    const selectedNote = notes.find((note) => Number(note.id) === Number(state.coachDiarySelectedNoteId)) || notes[0] || null;
-    if (selectedNote && Number(state.coachDiarySelectedNoteId) !== Number(selectedNote.id)) {
-      state.coachDiarySelectedNoteId = selectedNote.id;
-    }
-
-    return {
-      selectedNote,
-      markup: `
-        <section class="card coach-diary-list-card">
-          <div class="coach-condition-section-header">
-            <div>
-              <h2>${escapeHtml(selectedPlayer ? `${selectedPlayer.name} の日誌一覧` : '日誌一覧')}</h2>
-              <div class="small">新しい投稿順で、左に選手名＋ポジション、右に日付、下に本文冒頭と反応数をまとめて確認できます。</div>
-            </div>
-            <div class="small">${notes.length}件</div>
-          </div>
-          <div class="coach-diary-list">
-            ${notes.length ? notes.map((note) => `
-              <button type="button" class="list-item coach-diary-list-item ${Number(note.id) === Number(selectedNote && selectedNote.id) ? 'is-selected' : ''}" data-coach-diary-note="${note.id}">
-                <div class="coach-diary-list-head">
-                  <div>
-                    <strong>${escapeHtml(note.playerName || `選手#${note.playerId}`)}</strong>
-                    <div class="meta">${escapeHtml((note.playerProfile && note.playerProfile.position) || 'ポジション未設定')}</div>
-                  </div>
-                  <span class="meta">${escapeHtml(formatDiaryDateLabel(note.entryDate))}</span>
-                </div>
-                <p class="coach-diary-excerpt">${escapeHtml(formatDiaryExcerpt(note.body, 120))}</p>
-                <div class="coach-diary-note-footer">
-                  <div class="tag-list coach-diary-tag-list">
-                    ${(note.tags || []).length ? note.tags.slice(0, 3).map((tag) => `<span class="tag-chip">#${escapeHtml(tag)}</span>`).join('') : '<span class="small">タグなし</span>'}
-                  </div>
-                  <div class="coach-diary-note-meta">
-                    <span>コメント ${(note.coachComments || []).length}件</span>
-                    <span>スタンプ ${(note.coachStamps || []).length}件</span>
-                  </div>
-                </div>
-              </button>
-            `).join('') : '<div class="small">対象の日誌がありません。</div>'}
-          </div>
-        </section>
-      `,
-    };
+  function getCoachDiaryNotesByDate(notes) {
+    return [...notes].reduce((map, note) => {
+      const key = note.entryDate || '';
+      if (!key) return map;
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push(note);
+      return map;
+    }, new Map());
   }
 
-  function buildCoachDiaryDetailSection(selectedNote) {
-    if (!selectedNote) {
-      return '<section class="card"><h2>日誌詳細</h2><div class="small">日誌を選択すると本文や返信欄が表示されます。</div></section>';
+  function syncCoachDiaryDateSelection(notes) {
+    const availableDates = [...new Set(notes.map((note) => note.entryDate).filter(Boolean))]
+      .sort((left, right) => right.localeCompare(left));
+    const defaultDate = availableDates[0] || new Date().toISOString().slice(0, 10);
+
+    if (!state.coachDiarySelectedDate) {
+      state.coachDiarySelectedDate = defaultDate;
+    }
+
+    if (!state.coachDiaryCalendarMonth) {
+      state.coachDiaryCalendarMonth = state.coachDiarySelectedDate.slice(0, 7) || new Date().toISOString().slice(0, 7);
+    }
+
+    if (availableDates.length && !availableDates.includes(state.coachDiarySelectedDate)) {
+      state.coachDiarySelectedDate = defaultDate;
+      state.coachDiaryCalendarMonth = defaultDate.slice(0, 7);
+    }
+  }
+
+  function buildCoachDiaryCalendar(notes, selectedPlayer) {
+    const noteMap = getCoachDiaryNotesByDate(notes);
+    syncCoachDiaryDateSelection(notes);
+
+    const [yearValue, monthValue] = String(state.coachDiaryCalendarMonth || new Date().toISOString().slice(0, 7)).split('-');
+    const year = Number(yearValue) || new Date().getFullYear();
+    const monthIndex = (Number(monthValue) || (new Date().getMonth() + 1)) - 1;
+    const firstDay = new Date(year, monthIndex, 1);
+    const lastDate = new Date(year, monthIndex + 1, 0).getDate();
+    const leadingBlankCount = firstDay.getDay();
+    const todayIso = new Date().toISOString().slice(0, 10);
+    const monthLabel = `${year}年${monthIndex + 1}月`;
+    const selectedDateLabel = formatDiaryDateLabel(state.coachDiarySelectedDate);
+
+    const cells = [];
+    for (let i = 0; i < leadingBlankCount; i += 1) {
+      cells.push('<div class="calendar-day is-empty" aria-hidden="true"></div>');
+    }
+
+    for (let day = 1; day <= lastDate; day += 1) {
+      const isoDate = `${year}-${String(monthIndex + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      const dayNotes = noteMap.get(isoDate) || [];
+      const count = dayNotes.length;
+      const isSelected = state.coachDiarySelectedDate === isoDate;
+      const isToday = todayIso === isoDate;
+      cells.push(`
+        <button
+          type="button"
+          class="calendar-day coach-diary-calendar-day ${count ? 'has-note' : ''} ${isSelected ? 'is-selected' : ''} ${isToday ? 'is-today' : ''}"
+          data-coach-diary-date="${isoDate}"
+          aria-pressed="${isSelected ? 'true' : 'false'}"
+        >
+          <span class="calendar-day-number">${day}</span>
+          <span class="calendar-day-count ${count ? 'has-count' : 'is-muted'}">${count ? `${Math.min(count, 99)}${count > 99 ? '+' : ''}件` : '0件'}</span>
+        </button>
+      `);
+    }
+
+    return `
+      <section class="card coach-diary-calendar-card">
+        <div class="diary-calendar-header">
+          <div>
+            <h2>${escapeHtml(selectedPlayer ? `${selectedPlayer.name} の日誌カレンダー` : 'チーム野球日誌カレンダー')}</h2>
+            <div class="small">日付ごとの投稿件数を確認し、選択した日の詳細を下部カードでまとめて確認できます。</div>
+          </div>
+          <div class="calendar-month-nav">
+            <button type="button" class="button-secondary" data-coach-diary-calendar-nav="-1">前月</button>
+            <strong>${escapeHtml(monthLabel)}</strong>
+            <button type="button" class="button-secondary" data-coach-diary-calendar-nav="1">次月</button>
+          </div>
+        </div>
+        <div class="coach-diary-calendar-summary">
+          <span class="coach-diary-calendar-chip">選択日: <strong>${escapeHtml(selectedDateLabel)}</strong></span>
+          <span class="coach-diary-calendar-chip">投稿: <strong>${(noteMap.get(state.coachDiarySelectedDate) || []).length}件</strong></span>
+        </div>
+        <div class="calendar-weekdays">
+          <span>日</span><span>月</span><span>火</span><span>水</span><span>木</span><span>金</span><span>土</span>
+        </div>
+        <div class="calendar-grid">
+          ${cells.join('')}
+        </div>
+      </section>
+    `;
+  }
+
+  function buildCoachDiaryDayDetails(notes, selectedPlayer) {
+    syncCoachDiaryDateSelection(notes);
+    const selectedDate = state.coachDiarySelectedDate || new Date().toISOString().slice(0, 10);
+    const selectedDateNotes = [...notes]
+      .filter((note) => note.entryDate === selectedDate)
+      .sort((left, right) => compareDiaryNotes(left, right, 'desc'));
+    const selectedDateLabel = formatDiaryDateLabel(selectedDate);
+
+    if (!selectedDateNotes.length) {
+      return `
+        <section class="card coach-diary-detail-card">
+          <div class="coach-diary-detail-head">
+            <div>
+              <h2>${escapeHtml(selectedDateLabel)} の日誌詳細</h2>
+              <div class="small">${escapeHtml(selectedPlayer ? `${selectedPlayer.name} の投稿を表示中` : '全選手の投稿を表示中')}</div>
+            </div>
+            <span class="condition-status-badge muted">0件</span>
+          </div>
+          <div class="small">その日の投稿はありません。</div>
+        </section>
+      `;
     }
 
     return `
       <section class="card coach-diary-detail-card">
         <div class="coach-diary-detail-head">
           <div>
-            <h2>${escapeHtml(selectedNote.playerName || `選手#${selectedNote.playerId}`)} の日誌詳細</h2>
-            <div class="small">${escapeHtml(formatDiaryDateLabel(selectedNote.entryDate))} / ${escapeHtml((selectedNote.playerProfile && selectedNote.playerProfile.position) || 'ポジション未設定')}</div>
+            <h2>${escapeHtml(selectedDateLabel)} の日誌詳細</h2>
+            <div class="small">${escapeHtml(selectedPlayer ? `${selectedPlayer.name} の投稿一覧` : '該当日の全選手投稿一覧')}</div>
           </div>
-          <span class="condition-status-badge">${(selectedNote.coachComments || []).length}件返信</span>
+          <span class="condition-status-badge">${selectedDateNotes.length}件</span>
         </div>
-        <div class="coach-diary-detail-summary-grid">
-          <div class="stat-card">
-            <div class="stat-label">本文冒頭</div>
-            <div class="stat-value coach-diary-detail-stat">${escapeHtml(formatDiaryExcerpt(selectedNote.body, 45))}</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-label">タグ</div>
-            <div class="stat-value coach-diary-detail-stat">${(selectedNote.tags || []).length ? `${selectedNote.tags.length}件` : 'なし'}</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-label">スタンプ</div>
-            <div class="stat-value coach-diary-detail-stat">${(selectedNote.coachStamps || []).length}件</div>
-          </div>
+        <div class="coach-diary-day-card-list">
+          ${selectedDateNotes.map((note) => `
+            <article class="list-item coach-diary-day-card">
+              <div class="coach-diary-detail-head">
+                <div>
+                  <h3>${escapeHtml(note.playerName || `選手#${note.playerId}`)}</h3>
+                  <div class="small">${escapeHtml((note.playerProfile && note.playerProfile.position) || 'ポジション未設定')}</div>
+                </div>
+                <div class="coach-diary-day-card-badges">
+                  <span class="condition-status-badge">コメント ${(note.coachComments || []).length}件</span>
+                  <span class="condition-status-badge">スタンプ ${(note.coachStamps || []).length}件</span>
+                </div>
+              </div>
+              <div class="coach-diary-detail-summary-grid">
+                <div class="stat-card">
+                  <div class="stat-label">本文冒頭</div>
+                  <div class="stat-value coach-diary-detail-stat">${escapeHtml(formatDiaryExcerpt(note.body, 45))}</div>
+                </div>
+                <div class="stat-card">
+                  <div class="stat-label">タグ</div>
+                  <div class="stat-value coach-diary-detail-stat">${(note.tags || []).length ? `${note.tags.length}件` : 'なし'}</div>
+                </div>
+                <div class="stat-card">
+                  <div class="stat-label">最終更新</div>
+                  <div class="stat-value coach-diary-detail-stat">${escapeHtml(String(note.updatedAt || note.createdAt || '').replace('T', ' ').slice(0, 16) || '未設定')}</div>
+                </div>
+              </div>
+              <div class="stat-label">日誌本文</div>
+              <p class="coach-diary-detail-body">${escapeHtml(note.body || '')}</p>
+              <div class="tag-list">
+                ${(note.tags || []).length ? note.tags.map((tag) => `<span class="tag-chip">#${escapeHtml(tag)}</span>`).join('') : '<span class="small">タグなし</span>'}
+              </div>
+              ${buildCoachDiaryFeedbackList(note)}
+              ${buildCoachDiaryReplyForm(note)}
+            </article>
+          `).join('')}
         </div>
-        <div class="stat-label">日誌本文</div>
-        <p class="coach-diary-detail-body">${escapeHtml(selectedNote.body || '')}</p>
-        <div class="tag-list">
-          ${(selectedNote.tags || []).length ? selectedNote.tags.map((tag) => `<span class="tag-chip">#${escapeHtml(tag)}</span>`).join('') : '<span class="small">タグなし</span>'}
-        </div>
-        ${buildCoachDiaryFeedbackList(selectedNote)}
-        ${buildCoachDiaryReplyForm(selectedNote)}
       </section>
     `;
   }
@@ -2184,15 +2270,14 @@
   function buildCoachDiaryPanel(notes) {
     const players = getCoachDiaryPlayers();
     const selectedPlayer = players.find((player) => Number(player.id) === Number(state.coachDiarySelectedPlayerId)) || null;
-    const { selectedNote, markup: listMarkup } = buildCoachDiaryListSection(notes, selectedPlayer);
 
     return `
-      ${buildCoachDiaryToolbar(notes, players, selectedPlayer, selectedNote)}
+      ${buildCoachDiaryToolbar(notes, players, selectedPlayer, null)}
       ${buildCoachDiaryPlayerList(players)}
-      <div class="coach-diary-layout">
-        ${listMarkup}
+      <div class="coach-diary-layout coach-diary-layout-calendar">
+        ${buildCoachDiaryCalendar(notes, selectedPlayer)}
         <div class="coach-diary-detail">
-          ${buildCoachDiaryDetailSection(selectedNote)}
+          ${buildCoachDiaryDayDetails(notes, selectedPlayer)}
         </div>
       </div>
     `;
@@ -2212,17 +2297,23 @@
     root.innerHTML = `
       <section class="card role-hero">
         <div class="hero-kicker">監督専用</div>
-        <h2>チーム野球日誌一覧</h2>
-        <p class="small">体調画面に合わせて、上部の操作エリアから選手を切り替え、一覧カードと詳細で日誌内容を追える構成にしています。</p>
+        <h2>チーム野球日誌カレンダー</h2>
+        <p class="small">監督が日ごとの投稿状況を把握しやすいよう、投稿件数をカレンダーで見て、その日の詳細をカードでまとめて確認できる構成にしています。</p>
       </section>
       ${buildCoachDiaryPanel(notes)}
     `;
 
+    const resetCoachDiaryDateToLatest = () => {
+      const filteredNotes = getFilteredCoachDiaryNotes();
+      const latestNote = [...filteredNotes].sort((left, right) => compareDiaryNotes(left, right, 'desc'))[0] || null;
+      state.coachDiarySelectedDate = latestNote ? latestNote.entryDate : new Date().toISOString().slice(0, 10);
+      state.coachDiaryCalendarMonth = state.coachDiarySelectedDate.slice(0, 7);
+      state.coachDiarySelectedNoteId = latestNote ? latestNote.id : null;
+    };
+
     qs('coachDiaryPlayerFilter')?.addEventListener('change', (event) => {
       state.coachDiarySelectedPlayerId = event.target.value || '';
-      state.coachDiarySelectedNoteId = null;
-      state.coachDiaryReplyDraft = '';
-      state.coachDiarySelectedStamp = '';
+      resetCoachDiaryDateToLatest();
       renderCoachDiary({ reload: false });
     });
 
@@ -2230,54 +2321,65 @@
       button.addEventListener('click', () => {
         const nextPlayerId = Number(button.dataset.coachDiaryPlayer || 0) || '';
         state.coachDiarySelectedPlayerId = nextPlayerId;
-        state.coachDiarySelectedNoteId = null;
-        state.coachDiaryReplyDraft = '';
-        state.coachDiarySelectedStamp = '';
+        resetCoachDiaryDateToLatest();
         renderCoachDiary({ reload: false });
       });
     });
 
-    root.querySelectorAll('[data-coach-diary-note]').forEach((button) => {
+    root.querySelectorAll('[data-coach-diary-calendar-nav]').forEach((button) => {
       button.addEventListener('click', () => {
-        state.coachDiarySelectedNoteId = Number(button.dataset.coachDiaryNote || 0) || null;
-        state.coachDiaryReplyDraft = '';
-        state.coachDiarySelectedStamp = '';
+        const [yearValue, monthValue] = String(state.coachDiaryCalendarMonth || new Date().toISOString().slice(0, 7)).split('-');
+        const next = new Date(Number(yearValue), Number(monthValue) - 1 + Number(button.dataset.coachDiaryCalendarNav || 0), 1);
+        state.coachDiaryCalendarMonth = `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}`;
+        const monthNotes = getFilteredCoachDiaryNotes()
+          .filter((note) => String(note.entryDate || '').startsWith(state.coachDiaryCalendarMonth))
+          .sort((left, right) => compareDiaryNotes(left, right, 'desc'));
+        state.coachDiarySelectedDate = monthNotes[0]
+          ? monthNotes[0].entryDate
+          : `${state.coachDiaryCalendarMonth}-01`;
+        state.coachDiarySelectedNoteId = monthNotes[0] ? monthNotes[0].id : null;
         renderCoachDiary({ reload: false });
       });
     });
 
-    const replyForm = qs('coachDiaryReplyForm');
-    replyForm?.querySelector('[name="message"]')?.addEventListener('input', (event) => {
-      state.coachDiaryReplyDraft = event.target.value;
-    });
-    replyForm?.querySelector('[name="stamp"]')?.addEventListener('change', (event) => {
-      state.coachDiarySelectedStamp = event.target.value;
-    });
-    replyForm?.addEventListener('submit', async (event) => {
-      event.preventDefault();
-      const messageBox = qs('coachDiaryReplyMessageBox');
-      const noteId = Number(replyForm.querySelector('[data-note-id]')?.dataset.noteId || state.coachDiarySelectedNoteId);
-      messageBox.className = 'small';
-      messageBox.textContent = '返信を送信しています...';
-      try {
-        const payload = await api(`/api/coach/diary-notes/${noteId}/replies`, {
-          method: 'POST',
-          body: JSON.stringify({
-            message: replyForm.message.value,
-            stamp: replyForm.stamp.value,
-          }),
-        });
-        state.coachDiaryReplyDraft = '';
-        state.coachDiarySelectedStamp = '';
-        state.coachDiaryStampOptions = payload.stampOptions || state.coachDiaryStampOptions;
-        state.coachDiaryNotes = state.coachDiaryNotes.map((note) => (Number(note.id) === Number(payload.note.id) ? payload.note : note));
-        messageBox.className = 'small success-text';
-        messageBox.textContent = payload.message;
+    root.querySelectorAll('[data-coach-diary-date]').forEach((button) => {
+      button.addEventListener('click', () => {
+        state.coachDiarySelectedDate = button.dataset.coachDiaryDate || '';
+        state.coachDiaryCalendarMonth = state.coachDiarySelectedDate.slice(0, 7) || state.coachDiaryCalendarMonth;
+        const selectedDateNotes = getFilteredCoachDiaryNotes().filter((note) => note.entryDate === state.coachDiarySelectedDate);
+        state.coachDiarySelectedNoteId = selectedDateNotes[0] ? selectedDateNotes[0].id : null;
         renderCoachDiary({ reload: false });
-      } catch (error) {
-        messageBox.className = 'small error-text';
-        messageBox.textContent = error.message;
-      }
+      });
+    });
+
+    root.querySelectorAll('[data-coach-diary-reply-form]').forEach((replyForm) => {
+      replyForm.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const messageBox = replyForm.querySelector('[data-coach-diary-reply-message]');
+        const noteId = Number(replyForm.querySelector('[data-note-id]')?.dataset.noteId || 0);
+        if (!messageBox || !noteId) return;
+        messageBox.className = 'small';
+        messageBox.textContent = '返信を送信しています...';
+        try {
+          const payload = await api(`/api/coach/diary-notes/${noteId}/replies`, {
+            method: 'POST',
+            body: JSON.stringify({
+              message: replyForm.message.value,
+              stamp: replyForm.stamp.value,
+            }),
+          });
+          state.coachDiaryReplyDraft = '';
+          state.coachDiarySelectedStamp = '';
+          state.coachDiaryStampOptions = payload.stampOptions || state.coachDiaryStampOptions;
+          state.coachDiaryNotes = state.coachDiaryNotes.map((note) => (Number(note.id) === Number(payload.note.id) ? payload.note : note));
+          messageBox.className = 'small success-text';
+          messageBox.textContent = payload.message;
+          renderCoachDiary({ reload: false });
+        } catch (error) {
+          messageBox.className = 'small error-text';
+          messageBox.textContent = error.message;
+        }
+      });
     });
   }
 
