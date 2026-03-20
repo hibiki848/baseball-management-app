@@ -929,49 +929,144 @@ button,
   font-weight: 700;
 }
 
+.coach-diary-toolbar-card,
+.coach-diary-list-card,
+.coach-diary-detail-card {
+  margin-bottom: 0;
+}
+
+.coach-diary-toolbar-head {
+  margin-bottom: 14px;
+}
+
+.coach-diary-toolbar-grid {
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.coach-diary-filter-field {
+  margin-bottom: 0;
+}
+
+.coach-diary-toolbar-summary,
+.coach-diary-player-stats,
+.coach-diary-note-footer,
+.coach-diary-note-meta,
+.coach-diary-player-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.coach-diary-toolbar-summary {
+  justify-content: flex-end;
+}
+
+.coach-diary-summary-chip,
+.coach-diary-player-stats > div {
+  display: grid;
+  gap: 3px;
+  min-width: 92px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: var(--primary-light);
+}
+
+.coach-diary-summary-chip strong,
+.coach-diary-player-stats > div span:last-child {
+  font-size: 0.84rem;
+  line-height: 1.3;
+}
+
+.coach-diary-player-grid {
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 10px;
+}
+
+.coach-diary-player-card,
+.coach-diary-list-item {
+  display: grid;
+  gap: 10px;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.coach-diary-player-card:hover,
+.coach-diary-player-card:focus-visible,
+.coach-diary-player-card.is-selected,
+.coach-diary-list-item.is-selected,
+.coach-diary-list-item:hover,
+.coach-diary-list-item:focus-visible {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(22, 75, 134, 0.1);
+  transform: translateY(-1px);
+  outline: none;
+}
+
+.coach-diary-player-meta {
+  justify-content: space-between;
+  color: var(--subtext);
+  font-size: 0.74rem;
+}
+
 .coach-diary-layout {
   display: grid;
-  grid-template-columns: minmax(220px, 300px) minmax(0, 1fr);
+  grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
   gap: 12px;
   align-items: start;
 }
 
 .coach-diary-list {
   display: grid;
-  gap: 8px;
+  gap: 10px;
 }
 
-.coach-diary-list-item {
-  text-align: left;
-  cursor: pointer;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+.coach-diary-note-footer {
+  align-items: center;
+  justify-content: space-between;
 }
 
-.coach-diary-list-item.is-selected,
-.coach-diary-list-item:hover,
-.coach-diary-list-item:focus-visible {
-  border-color: var(--primary);
-  box-shadow: 0 0 0 3px rgba(22, 75, 134, 0.1);
-  outline: none;
+.coach-diary-tag-list {
+  gap: 6px;
+}
+
+.coach-diary-note-meta {
+  color: var(--subtext);
+  font-size: 0.74rem;
+  justify-content: flex-end;
 }
 
 .coach-diary-detail {
   min-width: 0;
 }
 
-.coach-diary-detail-card {
-  margin-bottom: 0;
+.coach-diary-detail-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 16px 0;
+}
+
+.coach-diary-detail-stat {
+  font-size: 0.95rem;
 }
 
 .coach-diary-excerpt,
 .coach-diary-detail-body {
-  margin: 8px 0 0;
+  margin: 0;
   line-height: 1.7;
   white-space: pre-wrap;
 }
 
+.coach-diary-detail-body {
+  margin-top: 8px;
+}
+
 .coach-diary-feedback-grid {
-  margin-top: 14px;
+  margin-top: 16px;
 }
 
 .diary-detail-comment + .diary-detail-comment {
@@ -1024,8 +1119,17 @@ button,
 
   .coach-player-summary-grid,
   .coach-player-summary-stats,
-  .coach-diary-layout {
+  .coach-diary-layout,
+  .coach-diary-toolbar-grid,
+  .coach-diary-detail-summary-grid {
     grid-template-columns: 1fr;
+  }
+
+  .coach-diary-toolbar-summary,
+  .coach-diary-note-footer,
+  .coach-diary-note-meta,
+  .coach-diary-player-meta {
+    justify-content: flex-start;
   }
 
   .coach-condition-summary-grid {
