@@ -1042,6 +1042,37 @@ app.get('/api/condition-records', requireRole(['player']), async (req, res) => {
   return res.status(200).json({ records });
 });
 
+app.get('/api/team-condition-records', requireRole(['coach']), async (req, res) => {
+  const [players, records] = await Promise.all([
+    listUsers(),
+    listConditionRecords(),
+  ]);
+  const playerMap = new Map(
+    players
+      .filter((user) => user.role === 'player')
+      .map((user) => [user.id, user]),
+  );
+
+  return res.status(200).json({
+    players: [...playerMap.values()]
+      .map((player) => ({
+        id: player.id,
+        name: player.name,
+        role: player.role,
+        profile: player.profile || {},
+      }))
+      .sort((left, right) => left.id - right.id),
+    records: records
+      .filter((record) => playerMap.has(record.userId))
+      .map((record) => ({
+        ...record,
+        playerName: playerMap.get(record.userId)?.name || `選手#${record.userId}`,
+        conditionStatusLabel: CONDITION_STATUS_LABELS[record.conditionStatus] || record.conditionStatus,
+        fatigueLevelLabel: FATIGUE_LEVEL_LABELS[record.fatigueLevel] || record.fatigueLevel,
+      })),
+  });
+});
+
 app.post('/api/condition-records', requireRole(['player']), async (req, res) => {
   const validation = validateConditionRecordInput(req.body);
   if (validation.error) {
@@ -1138,6 +1169,7 @@ app.use((req, res, next) => {
     '/condition-check.html': ['player'],
     '/manager.html': ['manager'],
     '/coach.html': ['coach'],
+    '/coach-condition.html': ['coach'],
   };
   const allowedRoles = roleProtectedPages[req.path];
   if (allowedRoles && !allowedRoles.includes(req.session.user.role)) {

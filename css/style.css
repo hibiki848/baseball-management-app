@@ -779,6 +779,65 @@ button,
   background: rgba(255, 255, 255, 0.72);
 }
 
+.coach-condition-filter-row,
+.coach-condition-section-header,
+.coach-condition-list-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.coach-condition-date-field {
+  flex: 1 1 220px;
+  margin-bottom: 0;
+}
+
+.coach-condition-filter-actions {
+  display: flex;
+  align-items: flex-end;
+}
+
+.coach-condition-list,
+.coach-condition-history-list {
+  display: grid;
+  gap: 10px;
+}
+
+.coach-condition-list-item,
+.coach-condition-history-item {
+  width: 100%;
+  text-align: left;
+}
+
+.coach-condition-list-item.is-selected,
+.coach-condition-history-item.is-selected {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(22, 75, 134, 0.12);
+}
+
+.coach-condition-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 12px;
+  margin-top: 10px;
+}
+
+.coach-condition-summary-grid > div {
+  display: grid;
+  gap: 2px;
+}
+
+.meta-label {
+  color: var(--subtext);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.coach-condition-history {
+  margin-top: 18px;
+}
+
 @media (max-width: 720px) {
   .app { max-width: 100%; }
   .grid,
@@ -795,6 +854,9 @@ button,
   .diary-calendar-header,
   .diary-list-header,
   .diary-note-header,
+  .coach-condition-filter-row,
+  .coach-condition-section-header,
+  .coach-condition-list-head,
   .condition-detail-header,
   .condition-detail-footer,
   .condition-weight-chart-header,
@@ -804,6 +866,10 @@ button,
   }
 
   .condition-weight-chart-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .coach-condition-summary-grid {
     grid-template-columns: 1fr;
   }
 

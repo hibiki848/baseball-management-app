@@ -21,6 +21,13 @@
     conditionDetailMode: 'view',
     conditionWeightChartVisible: false,
     conditionWeightChartRange: 'all',
+    coachConditionPlayers: [],
+    coachConditionRecords: [],
+    coachConditionSelectedDate: new Date().toISOString().slice(0, 10),
+    coachConditionCalendarMonth: new Date().toISOString().slice(0, 7),
+    coachConditionSelectedPlayerId: null,
+    coachConditionWeightChartVisible: false,
+    coachConditionWeightChartRange: 'all',
   };
 
   const big3Fields = [
@@ -352,6 +359,9 @@
     if (user.role === 'player') {
       links.push({ href: 'diary.html', page: 'diary', label: '野球日誌' });
       links.push({ href: 'condition-check.html', page: 'condition-check', label: '体調' });
+    }
+    if (user.role === 'coach') {
+      links.push({ href: 'coach-condition.html', page: 'coach-condition', label: '体調' });
     }
 
     if (isPlayerPage && user.role !== 'player') {
@@ -2279,6 +2289,464 @@
     });
   }
 
+
+  async function refreshCoachConditionData() {
+    const payload = await api('/api/team-condition-records');
+    state.coachConditionPlayers = payload.players || [];
+    state.coachConditionRecords = (payload.records || []).map((record) => normalizeConditionRecord(record));
+
+    const availablePlayerIds = new Set(state.coachConditionPlayers.map((player) => Number(player.id)));
+    if (!availablePlayerIds.has(Number(state.coachConditionSelectedPlayerId))) {
+      const datedRecords = getCoachConditionRecordsForDate(state.coachConditionSelectedDate);
+      state.coachConditionSelectedPlayerId = Number(datedRecords[0]?.userId || state.coachConditionPlayers[0]?.id || null);
+    }
+
+    if (!state.coachConditionSelectedDate) {
+      state.coachConditionSelectedDate = state.coachConditionRecords[0]?.entryDate || new Date().toISOString().slice(0, 10);
+    }
+    if (state.coachConditionSelectedDate) {
+      state.coachConditionCalendarMonth = state.coachConditionSelectedDate.slice(0, 7);
+    }
+  }
+
+  function getCoachConditionRecordsForDate(entryDate) {
+    return [...state.coachConditionRecords]
+      .filter((record) => record.entryDate === entryDate)
+      .sort((left, right) => {
+        const leftKey = `${left.updatedAt || ''}-${String(left.id || '').padStart(8, '0')}`;
+        const rightKey = `${right.updatedAt || ''}-${String(right.id || '').padStart(8, '0')}`;
+        return rightKey.localeCompare(leftKey);
+      });
+  }
+
+  function getCoachConditionPlayerById(playerId) {
+    return state.coachConditionPlayers.find((player) => Number(player.id) === Number(playerId)) || null;
+  }
+
+  function getCoachConditionRecordForPlayerAndDate(playerId, entryDate) {
+    if (!playerId || !entryDate) return null;
+    return state.coachConditionRecords.find((record) => Number(record.userId) === Number(playerId) && record.entryDate === entryDate) || null;
+  }
+
+  function getCoachConditionHistoryForPlayer(playerId) {
+    if (!playerId) return [];
+    return [...state.coachConditionRecords]
+      .filter((record) => Number(record.userId) === Number(playerId))
+      .sort((left, right) => {
+        const leftKey = `${left.entryDate || ''}-${left.updatedAt || ''}-${String(left.id || '').padStart(8, '0')}`;
+        const rightKey = `${right.entryDate || ''}-${right.updatedAt || ''}-${String(right.id || '').padStart(8, '0')}`;
+        return rightKey.localeCompare(leftKey);
+      });
+  }
+
+  function buildCoachConditionCalendar() {
+    const [yearValue, monthValue] = String(state.coachConditionCalendarMonth || new Date().toISOString().slice(0, 7)).split('-');
+    const year = Number(yearValue);
+    const monthIndex = Number(monthValue) - 1;
+    const monthStart = new Date(year, monthIndex, 1);
+    const monthEnd = new Date(year, monthIndex + 1, 0);
+    const startOffset = monthStart.getDay();
+    const countsByDate = getConditionRecordCountsByDate(state.coachConditionRecords);
+    const cells = [];
+
+    for (let i = 0; i < startOffset; i += 1) {
+      cells.push('<div class="calendar-day is-empty" aria-hidden="true"></div>');
+    }
+
+    for (let day = 1; day <= monthEnd.getDate(); day += 1) {
+      const isoDate = `${yearValue}-${String(monthIndex + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      const recordCount = countsByDate.get(isoDate) || 0;
+      const isSelected = state.coachConditionSelectedDate === isoDate;
+      const isToday = isoDate === new Date().toISOString().slice(0, 10);
+      cells.push(`
+        <button
+          type="button"
+          class="calendar-day ${recordCount > 0 ? 'has-note' : ''} ${isSelected ? 'is-selected' : ''} ${isToday ? 'is-today' : ''}"
+          data-coach-condition-date="${isoDate}"
+          aria-pressed="${String(isSelected)}"
+        >
+          <span class="calendar-day-number">${day}</span>
+          ${recordCount > 0 ? `<span class="calendar-day-count">${recordCount}件</span>` : '<span class="calendar-day-count placeholder">　</span>'}
+        </button>
+      `);
+    }
+
+    return `
+      <section class="card">
+        <div class="diary-calendar-header">
+          <div>
+            <h2>日付を切り替える</h2>
+            <div class="small">過去データを日付選択とカレンダーから確認できます。</div>
+          </div>
+          <div class="calendar-month-nav">
+            <button type="button" class="button-secondary" data-coach-condition-calendar-nav="-1">前月</button>
+            <strong>${monthStart.toLocaleDateString('ja-JP', { year: 'numeric', month: 'long' })}</strong>
+            <button type="button" class="button-secondary" data-coach-condition-calendar-nav="1">次月</button>
+          </div>
+        </div>
+        <div class="calendar-weekdays">
+          ${['日', '月', '火', '水', '木', '金', '土'].map((label) => `<div>${label}</div>`).join('')}
+        </div>
+        <div class="calendar-grid">${cells.join('')}</div>
+      </section>
+    `;
+  }
+
+  function getCoachConditionWeightHistory(range = 'all') {
+    const playerId = state.coachConditionSelectedPlayerId;
+    const referenceDate = state.coachConditionSelectedDate || new Date().toISOString().slice(0, 10);
+    const baseRecords = getCoachConditionHistoryForPlayer(playerId)
+      .filter((record) => record.entryDate <= referenceDate && Number.isFinite(Number(record.weight)))
+      .sort((left, right) => String(left.entryDate).localeCompare(String(right.entryDate)));
+
+    if (range === 'all') return baseRecords;
+    const dayWindow = range === '7d' ? 7 : range === '30d' ? 30 : null;
+    if (!dayWindow) return baseRecords;
+
+    const endDate = new Date(`${referenceDate}T00:00:00`);
+    if (Number.isNaN(endDate.getTime())) return baseRecords;
+    const startDate = new Date(endDate);
+    startDate.setDate(startDate.getDate() - (dayWindow - 1));
+    const startKey = startDate.toISOString().slice(0, 10);
+    return baseRecords.filter((record) => record.entryDate >= startKey);
+  }
+
+  function buildCoachConditionWeightChart(record, player) {
+    if (!state.coachConditionWeightChartVisible) return '';
+
+    const range = state.coachConditionWeightChartRange || 'all';
+    const records = getCoachConditionWeightHistory(range);
+    const rangeOptions = [
+      { value: '7d', label: '直近7日' },
+      { value: '30d', label: '直近30日' },
+      { value: 'all', label: '全期間' },
+    ];
+
+    if (!records.length) {
+      return `
+        <section class="condition-weight-chart" aria-live="polite">
+          <div class="condition-weight-chart-header">
+            <div>
+              <h3>体重の推移</h3>
+              <div class="small">${escapeHtml(player?.name || '選手未選択')}の体重履歴はまだありません。</div>
+            </div>
+            <div class="segmented-control" aria-label="体重推移の表示範囲切り替え">
+              ${rangeOptions.map((option) => `
+                <button
+                  type="button"
+                  class="segmented-control-button ${range === option.value ? 'is-active' : ''}"
+                  data-coach-condition-weight-range="${option.value}"
+                  aria-pressed="${String(range === option.value)}"
+                >${option.label}</button>
+              `).join('')}
+            </div>
+          </div>
+          <div class="condition-weight-chart-empty">体重履歴がないためグラフを表示できません。</div>
+        </section>
+      `;
+    }
+
+    const width = 320;
+    const height = 180;
+    const padding = { top: 20, right: 12, bottom: 34, left: 42 };
+    const chartWidth = width - padding.left - padding.right;
+    const chartHeight = height - padding.top - padding.bottom;
+    const weights = records.map((entry) => Number(entry.weight));
+    const minWeight = Math.min(...weights);
+    const maxWeight = Math.max(...weights);
+    const spread = Math.max(maxWeight - minWeight, 2);
+    const chartMin = Math.floor((minWeight - spread * 0.2) * 10) / 10;
+    const chartMax = Math.ceil((maxWeight + spread * 0.2) * 10) / 10;
+    const normalizedRange = Math.max(chartMax - chartMin, 1);
+    const getX = (index) => (records.length === 1 ? padding.left + chartWidth / 2 : padding.left + (chartWidth * index) / (records.length - 1));
+    const getY = (weight) => padding.top + ((chartMax - weight) / normalizedRange) * chartHeight;
+    const polylinePoints = records.map((entry, index) => `${getX(index).toFixed(1)},${getY(Number(entry.weight)).toFixed(1)}`).join(' ');
+    const gridValues = [chartMax, (chartMax + chartMin) / 2, chartMin];
+    const axisLabelIndexes = [...new Set([0, Math.floor((records.length - 1) / 2), records.length - 1])];
+    const firstWeight = Number(records[0].weight);
+    const lastWeight = Number(records[records.length - 1].weight);
+    const delta = lastWeight - firstWeight;
+    const deltaText = `${delta > 0 ? '+' : ''}${delta.toFixed(delta % 1 === 0 ? 0 : 1)}kg`;
+    const deltaClass = delta > 0 ? 'is-up' : delta < 0 ? 'is-down' : 'is-flat';
+    const latestRecord = records[records.length - 1];
+    const activeDateLabel = formatDiaryDateLabel(latestRecord?.entryDate || record?.entryDate || state.coachConditionSelectedDate);
+
+    return `
+      <section class="condition-weight-chart" aria-live="polite">
+        <div class="condition-weight-chart-header">
+          <div>
+            <h3>体重の推移</h3>
+            <div class="small">${escapeHtml(player?.name || '選手未選択')} / ${escapeHtml(activeDateLabel)}までの推移</div>
+          </div>
+          <div class="segmented-control" aria-label="体重推移の表示範囲切り替え">
+            ${rangeOptions.map((option) => `
+              <button
+                type="button"
+                class="segmented-control-button ${range === option.value ? 'is-active' : ''}"
+                data-coach-condition-weight-range="${option.value}"
+                aria-pressed="${String(range === option.value)}"
+              >${option.label}</button>
+            `).join('')}
+          </div>
+        </div>
+        <div class="condition-weight-chart-summary">
+          <div class="condition-weight-chart-highlight">
+            <span class="stat-label">最新体重</span>
+            <strong>${escapeHtml(fmtKg(lastWeight))}</strong>
+          </div>
+          <div class="condition-weight-chart-highlight ${deltaClass}">
+            <span class="stat-label">増減</span>
+            <strong>${escapeHtml(deltaText)}</strong>
+          </div>
+          <div class="condition-weight-chart-highlight">
+            <span class="stat-label">件数</span>
+            <strong>${records.length}件</strong>
+          </div>
+        </div>
+        <div class="condition-weight-chart-canvas" role="img" aria-label="日付ごとの体重推移グラフ">
+          <svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none">
+            ${gridValues.map((value) => {
+              const y = getY(value);
+              return `
+                <line x1="${padding.left}" y1="${y.toFixed(1)}" x2="${(padding.left + chartWidth).toFixed(1)}" y2="${y.toFixed(1)}" class="condition-weight-chart-grid" />
+                <text x="${(padding.left - 8).toFixed(1)}" y="${(y + 4).toFixed(1)}" text-anchor="end" class="condition-weight-chart-axis">${Number(value).toFixed(1).replace(/\.0$/, '')}</text>
+              `;
+            }).join('')}
+            <line x1="${padding.left}" y1="${(padding.top + chartHeight).toFixed(1)}" x2="${(padding.left + chartWidth).toFixed(1)}" y2="${(padding.top + chartHeight).toFixed(1)}" class="condition-weight-chart-baseline" />
+            ${records.length > 1 ? `<polyline fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" points="${polylinePoints}" />` : ''}
+            ${records.map((entry, index) => `
+              <circle cx="${getX(index).toFixed(1)}" cy="${getY(Number(entry.weight)).toFixed(1)}" r="4" class="condition-weight-chart-point ${entry.entryDate === state.coachConditionSelectedDate ? 'is-current' : ''}" />
+            `).join('')}
+            ${axisLabelIndexes.map((index) => `
+              <text x="${getX(index).toFixed(1)}" y="${(height - 10).toFixed(1)}" text-anchor="middle" class="condition-weight-chart-axis">${escapeHtml(formatConditionChartAxisDate(records[index].entryDate))}</text>
+            `).join('')}
+          </svg>
+        </div>
+      </section>
+    `;
+  }
+
+  function buildCoachConditionList(selectedDate) {
+    const recordsForDate = getCoachConditionRecordsForDate(selectedDate);
+    const recordMap = new Map(recordsForDate.map((record) => [Number(record.userId), record]));
+    const items = state.coachConditionPlayers.map((player) => {
+      const record = recordMap.get(Number(player.id)) || null;
+      const isSelected = Number(player.id) === Number(state.coachConditionSelectedPlayerId);
+      return `
+        <button type="button" class="list-item coach-condition-list-item ${isSelected ? 'is-selected' : ''}" data-coach-condition-player="${player.id}">
+          <div class="coach-condition-list-head">
+            <strong>${escapeHtml(player.name)}</strong>
+            <span class="condition-status-badge ${record ? '' : 'muted'}">${record ? '入力あり' : '未入力'}</span>
+          </div>
+          <div class="coach-condition-summary-grid">
+            <div><span class="meta-label">体調</span><span>${escapeHtml(record ? getConditionStatusLabel(record.conditionStatus, record) : '未入力')}</span></div>
+            <div><span class="meta-label">体重</span><span>${escapeHtml(record ? fmtKg(record.weight) : '—')}</span></div>
+            <div><span class="meta-label">睡眠時間</span><span>${escapeHtml(record ? `${record.sleepHours}時間` : '—')}</span></div>
+            <div><span class="meta-label">疲労度</span><span>${escapeHtml(record ? getFatigueLevelLabel(record.fatigueLevel, record) : '—')}</span></div>
+            <div><span class="meta-label">入力日</span><span>${escapeHtml(record ? formatDiaryDateLabel(record.entryDate) : '未入力')}</span></div>
+          </div>
+        </button>
+      `;
+    }).join('');
+
+    return `
+      <section class="card">
+        <div class="coach-condition-section-header">
+          <div>
+            <h2>選手一覧</h2>
+            <div class="small">${escapeHtml(formatDiaryDateLabel(selectedDate))}時点の各選手の最新体調を簡易表示しています。</div>
+          </div>
+          <div class="small">入力件数: ${recordsForDate.length} / ${state.coachConditionPlayers.length}</div>
+        </div>
+        ${state.coachConditionPlayers.length ? `<div class="coach-condition-list">${items}</div>` : '<div class="small">選手が登録されていません。</div>'}
+      </section>
+    `;
+  }
+
+  function buildCoachConditionDetail() {
+    const player = getCoachConditionPlayerById(state.coachConditionSelectedPlayerId);
+    if (!player) {
+      return '<section class="card"><h2>選手詳細</h2><div class="small">確認する選手を選択してください。</div></section>';
+    }
+
+    const record = getCoachConditionRecordForPlayerAndDate(player.id, state.coachConditionSelectedDate);
+    const history = getCoachConditionHistoryForPlayer(player.id);
+    return `
+      <section class="card">
+        <div class="condition-detail-header">
+          <div>
+            <h2>${escapeHtml(player.name)} の体調詳細</h2>
+            <div class="small">${escapeHtml(formatDiaryDateLabel(state.coachConditionSelectedDate))}</div>
+          </div>
+          ${record ? '<span class="condition-status-badge">入力あり</span>' : '<span class="condition-status-badge muted">未入力</span>'}
+        </div>
+        ${record ? `
+          <div class="grid">
+            <div class="stat-card">
+              <div class="stat-label">体調</div>
+              <div class="stat-value">${escapeHtml(getConditionStatusLabel(record.conditionStatus, record))}</div>
+            </div>
+            <button
+              type="button"
+              class="stat-card stat-card-button condition-weight-trigger ${state.coachConditionWeightChartVisible ? 'is-active' : ''}"
+              data-coach-condition-weight-toggle
+              aria-expanded="${String(state.coachConditionWeightChartVisible)}"
+            >
+              <div class="condition-weight-trigger-label">
+                <div class="stat-label">体重</div>
+                <span class="small inline-link">${state.coachConditionWeightChartVisible ? 'グラフを閉じる' : '推移を見る'}</span>
+              </div>
+              <div class="stat-value">${escapeHtml(fmtKg(record.weight))}</div>
+            </button>
+            <div class="stat-card">
+              <div class="stat-label">睡眠時間</div>
+              <div class="stat-value">${escapeHtml(String(record.sleepHours))}時間</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">疲労度</div>
+              <div class="stat-value">${escapeHtml(getFatigueLevelLabel(record.fatigueLevel, record))}</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">入力日</div>
+              <div class="stat-value">${escapeHtml(formatDiaryDateLabel(record.entryDate))}</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">最終更新</div>
+              <div class="stat-value">${escapeHtml(String(record.updatedAt || '').replace('T', ' ').slice(0, 16) || '—')}</div>
+            </div>
+          </div>
+          ${buildCoachConditionWeightChart(record, player)}
+        ` : '<div class="small">選択日の体調入力はありません。下の履歴から過去データを選ぶと詳細を確認できます。</div>'}
+        <div class="coach-condition-history">
+          <div class="coach-condition-section-header">
+            <div>
+              <h3>過去の体調履歴</h3>
+              <div class="small">日付を押すと、その日の詳細へ切り替わります。</div>
+            </div>
+            <div class="small">履歴 ${history.length}件</div>
+          </div>
+          ${history.length ? `<div class="coach-condition-history-list">${history.map((entry) => `
+            <button type="button" class="coach-condition-history-item ${entry.entryDate === state.coachConditionSelectedDate ? 'is-selected' : ''}" data-coach-condition-history-date="${entry.entryDate}">
+              <strong>${escapeHtml(formatDiaryDateLabel(entry.entryDate))}</strong>
+              <div class="meta">体調: ${escapeHtml(getConditionStatusLabel(entry.conditionStatus, entry))} / 体重: ${escapeHtml(fmtKg(entry.weight))} / 疲労度: ${escapeHtml(getFatigueLevelLabel(entry.fatigueLevel, entry))}</div>
+            </button>
+          `).join('')}</div>` : '<div class="small">この選手の履歴はまだありません。</div>'}
+        </div>
+      </section>
+    `;
+  }
+
+  async function renderCoachCondition(options = {}) {
+    const root = qs('coachConditionRoot');
+    if (!root) return;
+    const user = state.user || (await fetchCurrentUser());
+    if (!user) {
+      window.location.href = 'login.html';
+      return;
+    }
+    if (user.role !== 'coach') {
+      window.location.href = 'index.html';
+      return;
+    }
+
+    if (options.reload !== false) {
+      await refreshCoachConditionData();
+    }
+
+    const selectedDate = state.coachConditionSelectedDate || new Date().toISOString().slice(0, 10);
+    root.innerHTML = `
+      <section class="card role-hero">
+        <div class="hero-kicker">監督専用</div>
+        <h2>チーム体調一覧</h2>
+        <p class="small">日付ごとの体調状況を一覧で確認し、選手詳細から履歴や体重推移まで追えます。</p>
+      </section>
+      <section class="card">
+        <div class="coach-condition-filter-row">
+          <div class="form-row coach-condition-date-field">
+            <label for="coachConditionDateInput">表示日</label>
+            <input id="coachConditionDateInput" type="date" value="${escapeHtml(selectedDate)}" />
+          </div>
+          <div class="actions coach-condition-filter-actions">
+            <button type="button" class="button-secondary" id="coachConditionTodayBtn">今日を表示</button>
+          </div>
+        </div>
+        <div class="small">選択日の一覧では、その日に入力された各選手の最新記録を表示します。</div>
+      </section>
+      ${buildCoachConditionList(selectedDate)}
+      ${buildCoachConditionDetail()}
+      ${buildCoachConditionCalendar()}
+    `;
+
+    qs('coachConditionDateInput')?.addEventListener('change', (event) => {
+      state.coachConditionSelectedDate = event.target.value || new Date().toISOString().slice(0, 10);
+      state.coachConditionCalendarMonth = state.coachConditionSelectedDate.slice(0, 7);
+      state.coachConditionWeightChartVisible = false;
+      const datedRecords = getCoachConditionRecordsForDate(state.coachConditionSelectedDate);
+      if (datedRecords.length && !datedRecords.some((record) => Number(record.userId) === Number(state.coachConditionSelectedPlayerId))) {
+        state.coachConditionSelectedPlayerId = Number(datedRecords[0].userId);
+      }
+      renderCoachCondition({ reload: false });
+    });
+
+    qs('coachConditionTodayBtn')?.addEventListener('click', () => {
+      state.coachConditionSelectedDate = new Date().toISOString().slice(0, 10);
+      state.coachConditionCalendarMonth = state.coachConditionSelectedDate.slice(0, 7);
+      state.coachConditionWeightChartVisible = false;
+      renderCoachCondition({ reload: false });
+    });
+
+    root.querySelectorAll('[data-coach-condition-player]').forEach((button) => {
+      button.addEventListener('click', () => {
+        state.coachConditionSelectedPlayerId = Number(button.dataset.coachConditionPlayer || 0) || null;
+        state.coachConditionWeightChartVisible = false;
+        renderCoachCondition({ reload: false });
+      });
+    });
+
+    root.querySelector('[data-coach-condition-weight-toggle]')?.addEventListener('click', () => {
+      state.coachConditionWeightChartVisible = !state.coachConditionWeightChartVisible;
+      renderCoachCondition({ reload: false });
+    });
+
+    root.querySelectorAll('[data-coach-condition-weight-range]').forEach((button) => {
+      button.addEventListener('click', () => {
+        state.coachConditionWeightChartVisible = true;
+        state.coachConditionWeightChartRange = button.dataset.coachConditionWeightRange || 'all';
+        renderCoachCondition({ reload: false });
+      });
+    });
+
+    root.querySelectorAll('[data-coach-condition-history-date]').forEach((button) => {
+      button.addEventListener('click', () => {
+        state.coachConditionSelectedDate = button.dataset.coachConditionHistoryDate || state.coachConditionSelectedDate;
+        state.coachConditionCalendarMonth = state.coachConditionSelectedDate.slice(0, 7);
+        renderCoachCondition({ reload: false });
+      });
+    });
+
+    root.querySelectorAll('[data-coach-condition-date]').forEach((button) => {
+      button.addEventListener('click', () => {
+        state.coachConditionSelectedDate = button.dataset.coachConditionDate || selectedDate;
+        state.coachConditionCalendarMonth = state.coachConditionSelectedDate.slice(0, 7);
+        state.coachConditionWeightChartVisible = false;
+        const datedRecords = getCoachConditionRecordsForDate(state.coachConditionSelectedDate);
+        if (datedRecords.length && !datedRecords.some((record) => Number(record.userId) === Number(state.coachConditionSelectedPlayerId))) {
+          state.coachConditionSelectedPlayerId = Number(datedRecords[0].userId);
+        }
+        renderCoachCondition({ reload: false });
+      });
+    });
+
+    root.querySelectorAll('[data-coach-condition-calendar-nav]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const [yearValue, monthValue] = String(state.coachConditionCalendarMonth).split('-');
+        const next = new Date(Number(yearValue), Number(monthValue) - 1 + Number(button.dataset.coachConditionCalendarNav || 0), 1);
+        state.coachConditionCalendarMonth = `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}`;
+        renderCoachCondition({ reload: false });
+      });
+    });
+  }
+
   async function renderSettings() {
     if (!qs('settingsRoot')) return;
     const user = await fetchCurrentUser();
@@ -2437,5 +2905,6 @@
     await renderRoleWorkspace();
     await renderDiary();
     await renderConditionCheck();
+    await renderCoachCondition();
   });
 })();
