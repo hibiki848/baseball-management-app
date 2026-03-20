@@ -2005,57 +2005,12 @@
     `;
   }
 
-  function buildCoachDiaryToolbar(notes, players, selectedPlayer, selectedNote) {
-    const selectedPlayerNotes = selectedPlayer ? getCoachDiaryNotesByPlayer(selectedPlayer.id) : notes;
-    const totalComments = notes.reduce((count, note) => count + ((note.coachComments || []).length), 0);
-    const totalStamps = notes.reduce((count, note) => count + ((note.coachStamps || []).length), 0);
-    const selectedNoteLabel = state.coachDiarySelectedDate ? formatDiaryDateLabel(state.coachDiarySelectedDate) : '未選択';
-
-    return `
-      <section class="card coach-diary-toolbar-card">
-        <div class="coach-condition-section-header coach-diary-toolbar-head">
-          <div>
-            <h2>日誌の確認と絞り込み</h2>
-            <div class="small">体調画面と同じ流れで、上部で対象を切り替えながら一覧と詳細を確認できます。</div>
-          </div>
-          <div class="small">全${notes.length}件 / ${players.length}選手</div>
-        </div>
-        <div class="coach-diary-toolbar-grid">
-          <div class="form-row coach-diary-filter-field">
-            <label for="coachDiaryPlayerFilter">選手で絞り込み</label>
-            <select id="coachDiaryPlayerFilter">
-              <option value="">全選手</option>
-              ${players.map((player) => `
-                <option value="${player.id}" ${Number(player.id) === Number(state.coachDiarySelectedPlayerId) ? 'selected' : ''}>${escapeHtml(player.name)}</option>
-              `).join('')}
-            </select>
-          </div>
-          <div class="coach-diary-toolbar-summary" aria-label="野球日誌サマリー">
-            <div class="coach-diary-summary-chip">
-              <span class="meta-label">表示件数</span>
-              <strong>${selectedPlayerNotes.length}件</strong>
-            </div>
-            <div class="coach-diary-summary-chip">
-              <span class="meta-label">コメント</span>
-              <strong>${totalComments}件</strong>
-            </div>
-            <div class="coach-diary-summary-chip">
-              <span class="meta-label">スタンプ</span>
-              <strong>${totalStamps}件</strong>
-            </div>
-            <div class="coach-diary-summary-chip">
-              <span class="meta-label">選択中</span>
-              <strong>${escapeHtml(selectedPlayer ? selectedPlayer.name : '全選手')}</strong>
-              <span class="small">${escapeHtml(selectedNoteLabel)}</span>
-            </div>
-          </div>
-        </div>
-      </section>
-    `;
-  }
-
   function buildCoachDiaryPlayerList(players) {
     const selectedPlayerId = Number(state.coachDiarySelectedPlayerId || 0);
+    const selectedPlayer = players.find((player) => Number(player.id) === selectedPlayerId) || null;
+    const visibleNotes = getFilteredCoachDiaryNotes();
+    const totalComments = visibleNotes.reduce((count, note) => count + ((note.coachComments || []).length), 0);
+    const totalStamps = visibleNotes.reduce((count, note) => count + ((note.coachStamps || []).length), 0);
     const playerCards = players.map((player) => {
       const playerNotes = getCoachDiaryNotesByPlayer(player.id);
       const latestNote = playerNotes[0] || null;
@@ -2091,9 +2046,14 @@
         <div class="coach-condition-section-header">
           <div>
             <h2>選手一覧</h2>
-            <div class="small">カードで各選手の最新日誌の冒頭と反応状況を把握できます。</div>
+            <div class="small">カードで各選手の最新日誌の冒頭と反応状況を把握できます。選択中の選手に応じて下部のカレンダーと詳細を更新します。</div>
           </div>
-          <div class="small">選択すると右側の一覧と詳細を更新します。</div>
+          <div class="coach-diary-player-summary small" aria-label="表示中の野球日誌サマリー">
+            <span>表示: <strong>${visibleNotes.length}件</strong></span>
+            <span>コメント: <strong>${totalComments}件</strong></span>
+            <span>スタンプ: <strong>${totalStamps}件</strong></span>
+            <span>対象: <strong>${escapeHtml(selectedPlayer ? selectedPlayer.name : '全選手')}</strong></span>
+          </div>
         </div>
         ${players.length ? `<div class="coach-condition-list coach-diary-player-grid">${playerCards}</div>` : '<div class="small">選手が登録されていません。</div>'}
       </section>
@@ -2272,7 +2232,6 @@
     const selectedPlayer = players.find((player) => Number(player.id) === Number(state.coachDiarySelectedPlayerId)) || null;
 
     return `
-      ${buildCoachDiaryToolbar(notes, players, selectedPlayer, null)}
       ${buildCoachDiaryPlayerList(players)}
       <div class="coach-diary-layout coach-diary-layout-calendar">
         ${buildCoachDiaryCalendar(notes, selectedPlayer)}
@@ -2310,12 +2269,6 @@
       state.coachDiaryCalendarMonth = state.coachDiarySelectedDate.slice(0, 7);
       state.coachDiarySelectedNoteId = latestNote ? latestNote.id : null;
     };
-
-    qs('coachDiaryPlayerFilter')?.addEventListener('change', (event) => {
-      state.coachDiarySelectedPlayerId = event.target.value || '';
-      resetCoachDiaryDateToLatest();
-      renderCoachDiary({ reload: false });
-    });
 
     root.querySelectorAll('[data-coach-diary-player]').forEach((button) => {
       button.addEventListener('click', () => {
