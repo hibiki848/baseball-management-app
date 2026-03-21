@@ -192,6 +192,13 @@
     return date.toLocaleDateString('ja-JP', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' });
   }
 
+  function formatDateTimeLabel(dateTimeString) {
+    if (!dateTimeString) return '日時未設定';
+    const date = new Date(dateTimeString);
+    if (Number.isNaN(date.getTime())) return String(dateTimeString);
+    return date.toLocaleString('ja-JP', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+  }
+
   function getConditionStatusLabel(value, record = null) {
     return record?.conditionStatusLabel || conditionStatusOptions.find((option) => option.value === value)?.label || value || '—';
   }
@@ -1566,6 +1573,44 @@
           <div class="small">${escapeHtml(payload.game.location || '会場未設定')} / ${payload.game.teamScore}-${payload.game.opponentScore}</div>
         </section>
         <section class="card">
+          <div class="card-head-actions">
+            <h2>試合後ミーティング</h2>
+            <a class="button button-secondary" href="meeting-history.html">ミーティング履歴</a>
+          </div>
+          <button id="toggleMeetingFormBtn" class="button button-secondary" type="button">ミーティングを記録</button>
+          <form id="meetingForm" class="form hidden compact-top">
+            <div class="form-row">
+              <label for="meetingGoodPoints">良かった点</label>
+              <textarea id="meetingGoodPoints" name="goodPoints" rows="3" maxlength="4000" required></textarea>
+            </div>
+            <div class="form-row">
+              <label for="meetingImprovementPoints">改善点</label>
+              <textarea id="meetingImprovementPoints" name="improvementPoints" rows="3" maxlength="4000" required></textarea>
+            </div>
+            <div class="form-row">
+              <label for="meetingNextGoals">次回の目標</label>
+              <textarea id="meetingNextGoals" name="nextGoals" rows="3" maxlength="4000" required></textarea>
+            </div>
+            <div class="actions">
+              <button class="button" type="submit">保存する</button>
+            </div>
+            <div id="meetingFormMessage" class="small"></div>
+          </form>
+          <div class="compact-top">
+            ${payload.meetings.length === 0 ? '<div class="small">まだミーティング記録がありません。</div>' : payload.meetings.map((meeting) => `
+              <article class="list-item meeting-item">
+                <div class="meta">${escapeHtml(formatDateTimeLabel(meeting.createdAt))}${meeting.createdByName ? ` / ${escapeHtml(meeting.createdByName)}` : ''}</div>
+                <h3>良かった点</h3>
+                <p>${escapeHtml(meeting.goodPoints).replaceAll('\n', '<br/>')}</p>
+                <h3>改善点</h3>
+                <p>${escapeHtml(meeting.improvementPoints).replaceAll('\n', '<br/>')}</p>
+                <h3>次回の目標</h3>
+                <p>${escapeHtml(meeting.nextGoals).replaceAll('\n', '<br/>')}</p>
+              </article>
+            `).join('')}
+          </div>
+        </section>
+        <section class="card">
           <h2>打撃入力一覧</h2>
           ${battingEntries.length === 0 ? '<div class="small">まだ打撃入力がありません。</div>' : `
             <div class="table-wrap"><table class="table"><thead><tr><th>選手</th><th>打率</th><th>OPS</th><th>打点</th><th>盗塁</th><th>得点圏打率</th></tr></thead><tbody>
@@ -1593,6 +1638,70 @@
               <div class="meta">候補 ${upload.candidates.length}件 / ${escapeHtml(upload.parseStatus)}</div>
               <img src="${upload.imageDataUrl}" alt="scorebook" class="scorebook-image compact-image" />
             </div>
+          `).join('')}
+        </section>
+      `;
+      const toggleMeetingFormBtn = qs('toggleMeetingFormBtn');
+      const meetingForm = qs('meetingForm');
+      const meetingFormMessage = qs('meetingFormMessage');
+      if (toggleMeetingFormBtn && meetingForm) {
+        toggleMeetingFormBtn.addEventListener('click', () => {
+          meetingForm.classList.toggle('hidden');
+        });
+      }
+      if (meetingForm && meetingFormMessage) {
+        meetingForm.addEventListener('submit', async (event) => {
+          event.preventDefault();
+          const formData = new FormData(meetingForm);
+          meetingFormMessage.className = 'small';
+          meetingFormMessage.textContent = '保存中です...';
+          try {
+            await api(`/api/games/${gameId}/meetings`, {
+              method: 'POST',
+              body: JSON.stringify({
+                goodPoints: formData.get('goodPoints'),
+                improvementPoints: formData.get('improvementPoints'),
+                nextGoals: formData.get('nextGoals'),
+              }),
+            });
+            await renderGameDetail();
+          } catch (error) {
+            meetingFormMessage.className = 'small error-text';
+            meetingFormMessage.textContent = error.message;
+          }
+        });
+      }
+    } catch (error) {
+      root.innerHTML = `<section class="card"><div class="small error-text">${escapeHtml(error.message)}</div></section>`;
+    }
+  }
+
+  async function renderMeetingHistory() {
+    const root = qs('meetingHistoryRoot');
+    if (!root) return;
+    try {
+      const payload = await api('/api/meetings');
+      root.innerHTML = `
+        <section class="card role-hero">
+          <h2>試合後ミーティング履歴</h2>
+          <p class="small">最新の記録から表示しています。</p>
+          <div class="actions">
+            <a class="button button-secondary" href="games.html">試合一覧へ</a>
+          </div>
+        </section>
+        <section class="card">
+          <h2>履歴一覧</h2>
+          ${payload.meetings.length === 0 ? '<div class="small">まだ履歴がありません。</div>' : payload.meetings.map((meeting) => `
+            <article class="list-item meeting-item">
+              <div class="meta">${escapeHtml(formatDateTimeLabel(meeting.createdAt))}</div>
+              <div class="small"><a class="inline-link" href="game-detail.html?gameId=${meeting.game.id}">${escapeHtml(`${meeting.game.date} [${getGameTypeLabel(meeting.game.gameType)}] vs ${meeting.game.opponent}`)}</a></div>
+              <h3>良かった点</h3>
+              <p>${escapeHtml(meeting.goodPoints).replaceAll('\n', '<br/>')}</p>
+              <h3>改善点</h3>
+              <p>${escapeHtml(meeting.improvementPoints).replaceAll('\n', '<br/>')}</p>
+              <h3>次回の目標</h3>
+              <p>${escapeHtml(meeting.nextGoals).replaceAll('\n', '<br/>')}</p>
+            </article>
           `).join('')}
         </section>
       `;
@@ -3463,5 +3572,6 @@
     await renderConditionCheck();
     await renderCoachCondition();
     await renderPlayerDetail();
+    await renderMeetingHistory();
   });
 })();

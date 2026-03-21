@@ -5,6 +5,7 @@ const bcrypt = require('bcrypt');
 const {
   createGame,
   createDiaryNote,
+  createMeeting,
   createScorebookUpload,
   createUser,
   deleteConditionRecordByUserAndDate,
@@ -22,6 +23,7 @@ const {
   listConditionRecords,
   listDiaryNotes,
   listGames,
+  listMeetings,
   listScorebookUploads,
   listStatEntries,
   listUsers,
@@ -247,6 +249,33 @@ function validateConditionRecordInput(rawInput = {}) {
       weight,
       sleepHours,
       fatigueLevel,
+    },
+  };
+}
+
+function validateMeetingInput(rawInput = {}) {
+  const goodPoints = String(rawInput.goodPoints || '').trim();
+  const improvementPoints = String(rawInput.improvementPoints || '').trim();
+  const nextGoals = String(rawInput.nextGoals || '').trim();
+
+  if (!goodPoints) {
+    return { error: '良かった点を入力してください。' };
+  }
+  if (!improvementPoints) {
+    return { error: '改善点を入力してください。' };
+  }
+  if (!nextGoals) {
+    return { error: '次回の目標を入力してください。' };
+  }
+  if (goodPoints.length > 4000 || improvementPoints.length > 4000 || nextGoals.length > 4000) {
+    return { error: '各項目は4000文字以内で入力してください。' };
+  }
+
+  return {
+    values: {
+      goodPoints,
+      improvementPoints,
+      nextGoals,
     },
   };
 }
@@ -894,17 +923,53 @@ app.get('/api/games/:id', requireLogin, async (req, res) => {
   if (!game) {
     return res.status(404).json({ message: '試合が見つかりません。' });
   }
-  const [entries, scorebooks, users] = await Promise.all([
+  const [entries, scorebooks, users, meetings] = await Promise.all([
     listStatEntries({ gameId: game.id }),
     listScorebookUploads({ gameId: game.id }),
     listUsers(),
+    listMeetings({ gameId: game.id }),
   ]);
   const userMap = new Map(users.map((user) => [user.id, user]));
   return res.status(200).json({
     game: buildGameSummary(game, entries, scorebooks),
     entries: await Promise.all(entries.map((entry) => serializeEntry(entry, userMap))),
     scorebooks,
+    meetings: meetings.map((meeting) => ({
+      ...meeting,
+      createdByName: meeting.createdBy ? (userMap.get(meeting.createdBy)?.name || '') : '',
+    })),
   });
+});
+
+app.get('/api/meetings', requireLogin, async (_req, res) => {
+  const [meetings, users] = await Promise.all([listMeetings(), listUsers()]);
+  const userMap = new Map(users.map((user) => [user.id, user]));
+  return res.status(200).json({
+    meetings: meetings.map((meeting) => ({
+      ...meeting,
+      createdByName: meeting.createdBy ? (userMap.get(meeting.createdBy)?.name || '') : '',
+    })),
+  });
+});
+
+app.post('/api/games/:id/meetings', requireLogin, async (req, res) => {
+  const gameId = Number(req.params.id);
+  const game = await findGameById(gameId);
+  if (!game) {
+    return res.status(404).json({ message: '試合が見つかりません。' });
+  }
+
+  const validated = validateMeetingInput(req.body);
+  if (validated.error) {
+    return res.status(400).json({ message: validated.error });
+  }
+
+  const meeting = await createMeeting({
+    gameId: game.id,
+    ...validated.values,
+    createdBy: req.session.user.id,
+  });
+  return res.status(201).json({ meeting, message: 'ミーティングを記録しました。' });
 });
 
 app.get('/api/dashboard', requireLogin, async (req, res) => {

@@ -9,6 +9,7 @@ const requiredMigrationFiles = [
   '20260318_add_big3_records.sql',
   '20260319_add_baseball_diary_notes.sql',
   '20260319_add_player_condition_records.sql',
+  '20260321_add_game_meetings.sql',
 ];
 
 function buildPoolOptions() {
@@ -253,6 +254,20 @@ function mapConditionRecord(row) {
     fatigueLevel: row.fatigue_level,
     createdBy: row.created_by == null ? null : Number(row.created_by),
     updatedBy: row.updated_by == null ? null : Number(row.updated_by),
+    createdAt: normalizeDateTime(row.created_at),
+    updatedAt: normalizeDateTime(row.updated_at),
+  };
+}
+
+function mapMeeting(row) {
+  if (!row) return null;
+  return {
+    id: Number(row.id),
+    gameId: Number(row.game_id),
+    goodPoints: row.good_points || '',
+    improvementPoints: row.improvement_points || '',
+    nextGoals: row.next_goals || '',
+    createdBy: row.created_by == null ? null : Number(row.created_by),
     createdAt: normalizeDateTime(row.created_at),
     updatedAt: normalizeDateTime(row.updated_at),
   };
@@ -656,6 +671,53 @@ async function deleteConditionRecordByUserAndDate(userId, entryDate) {
   return Number(result.affectedRows || 0) > 0;
 }
 
+async function listMeetings(filters = {}) {
+  const clauses = [];
+  const values = [];
+  if (filters.gameId != null) {
+    clauses.push('meetings.game_id = ?');
+    values.push(filters.gameId);
+  }
+  const whereClause = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
+  const [rows] = await pool.query(
+    `SELECT
+      meetings.*,
+      games.game_date,
+      games.opponent,
+      games.game_type
+     FROM meetings
+     INNER JOIN games ON games.id = meetings.game_id
+     ${whereClause}
+     ORDER BY meetings.created_at DESC, meetings.id DESC`,
+    values,
+  );
+  return rows.map((row) => {
+    const meeting = mapMeeting(row);
+    return {
+      ...meeting,
+      game: {
+        id: Number(row.game_id),
+        date: normalizeDate(row.game_date),
+        opponent: row.opponent || '',
+        gameType: row.game_type || '',
+      },
+    };
+  });
+}
+
+async function createMeeting({ gameId, goodPoints, improvementPoints, nextGoals, createdBy }) {
+  const [result] = await pool.query(
+    `INSERT INTO meetings (game_id, good_points, improvement_points, next_goals, created_by)
+     VALUES (?, ?, ?, ?, ?)`,
+    [gameId, goodPoints, improvementPoints, nextGoals, createdBy],
+  );
+  const [rows] = await pool.query(
+    'SELECT * FROM meetings WHERE id = ? LIMIT 1',
+    [result.insertId],
+  );
+  return mapMeeting(rows[0]);
+}
+
 async function closeDatabase() {
   sessionStore.close();
   await pool.end();
@@ -665,6 +727,7 @@ module.exports = {
   closeDatabase,
   createGame,
   createDiaryNote,
+  createMeeting,
   createScorebookUpload,
   createUser,
   deleteConditionRecordByUserAndDate,
@@ -683,6 +746,7 @@ module.exports = {
   listConditionRecords,
   listDiaryNotes,
   listGames,
+  listMeetings,
   listScorebookUploads,
   listStatEntries,
   listUsers,
