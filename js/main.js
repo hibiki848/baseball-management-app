@@ -121,7 +121,7 @@
     { value: 'high', label: '高' },
   ];
   const defaultCoachDiaryStampOptions = ['いいね', 'ナイス', 'おつかれ', 'ファイト', 'すごい'];
-  const playerGradeOptions = ['', '1年', '2年', '3年'];
+  const playerGradeOptions = ['', '1年', '2年', '3年', 'マネージャー', 'その他'];
 
   function getGameTypeLabel(gameType) {
     return gameTypeLabels[gameType] || '未設定';
@@ -3490,7 +3490,15 @@
     qs('profileName').textContent = user.name;
     qs('profileRole').textContent = getRoleLabel(user.role);
     qs('profileTeam').textContent = '野球部';
-    if (qs('profileGrade')) qs('profileGrade').textContent = user.role === 'player' ? getPlayerGradeLabel(user.profile || {}) : '—';
+    if (qs('profileGradeValue')) qs('profileGradeValue').textContent = user.role === 'player' ? getPlayerGradeLabel(user.profile || {}) : '—';
+    if (qs('profileDisplayName')) qs('profileDisplayName').value = user.name || '';
+    const profileGradeRow = qs('profileGradeRow');
+    const profileGrade = qs('profileGradeSelect');
+    if (profileGradeRow) profileGradeRow.hidden = user.role !== 'player';
+    if (profileGrade) {
+      profileGrade.disabled = user.role !== 'player';
+      profileGrade.innerHTML = buildGradeOptionTags(getPlayerGrade(user.profile || {}), { includeUnset: true });
+    }
     qs('logoutBtn')?.addEventListener('click', async () => {
       await api('/api/logout', { method: 'POST' });
       window.location.href = 'login.html';
@@ -3513,15 +3521,49 @@
         message.textContent = error.message;
       }
     });
-    ['profileForm', 'emailForm', 'passwordForm'].forEach((id) => {
+    ['emailForm', 'passwordForm'].forEach((id) => {
       const form = qs(id);
       if (form) {
         form.addEventListener('submit', (event) => {
           event.preventDefault();
-          const messageId = id === 'profileForm' ? 'profileMessage' : id === 'emailForm' ? 'emailMessage' : 'passwordMessage';
+          const messageId = id === 'emailForm' ? 'emailMessage' : 'passwordMessage';
           qs(messageId).className = 'small success-text';
           qs(messageId).textContent = '現在のサンプル実装ではプレビューのみ対応しています。';
         });
+      }
+    });
+    qs('profileForm')?.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const message = qs('profileMessage');
+      message.className = 'small';
+      message.textContent = '保存中です...';
+      try {
+        const payload = await api('/api/profile', {
+          method: 'PUT',
+          body: JSON.stringify({
+            displayName: qs('profileDisplayName')?.value || '',
+            grade: user.role === 'player' ? (qs('profileGradeSelect')?.value || '') : '',
+          }),
+        });
+        state.user = payload.user;
+        if (state.dashboard) {
+          state.dashboard.user = payload.user;
+        }
+        qs('profileName').textContent = payload.user.name;
+        if (qs('profileDisplayName')) qs('profileDisplayName').value = payload.user.name || '';
+        if (qs('profileGradeSelect')) {
+          qs('profileGradeSelect').value = getPlayerGrade((payload.user && payload.user.profile) || {});
+        }
+        if (qs('profileGradeValue')) {
+          qs('profileGradeValue').textContent = payload.user.role === 'player'
+            ? getPlayerGradeLabel((payload.user && payload.user.profile) || {})
+            : '—';
+        }
+        message.className = 'small success-text';
+        message.textContent = payload.message || 'プロフィールを更新しました。';
+      } catch (error) {
+        message.className = 'small error-text';
+        message.textContent = error.message;
       }
     });
   }

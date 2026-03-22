@@ -28,6 +28,7 @@ const {
   listStatEntries,
   listUsers,
   sessionStore,
+  updateUserName,
   updateDiaryNote,
   upsertBig3Record,
   upsertConditionRecord,
@@ -53,7 +54,7 @@ const PLAYER_META_DEFAULTS = {
   grade: '',
   personalGoal: '',
 };
-const PLAYER_GRADE_OPTIONS = Object.freeze(['1年', '2年', '3年']);
+const PLAYER_GRADE_OPTIONS = Object.freeze(['1年', '2年', '3年', 'マネージャー', 'その他']);
 const ALLOWED_PLAYER_GRADES = new Set(PLAYER_GRADE_OPTIONS);
 const GAME_TYPE_LABELS = {
   official: '公式戦',
@@ -345,6 +346,13 @@ function destroySession(req, res) {
 function sanitizeUser(user) {
   if (!user) return null;
   const { passwordHash, ...safeUser } = user;
+  if (safeUser.role === 'player') {
+    safeUser.profile = {
+      ...PLAYER_META_DEFAULTS,
+      ...(safeUser.profile || {}),
+      grade: normalizePlayerGrade((safeUser.profile || {}).grade),
+    };
+  }
   return safeUser;
 }
 
@@ -1049,6 +1057,38 @@ app.put('/api/profile/personal-goal', requireRole(['player']), async (req, res) 
 
   return res.status(200).json({
     message: personalGoal ? '個人目標を保存しました。' : '個人目標をクリアしました。',
+    user: sanitizeUser(updatedUser),
+  });
+});
+
+app.put('/api/profile', requireLogin, async (req, res) => {
+  const user = await findUserById(req.session.user.id);
+  if (!user) {
+    return res.status(404).json({ message: 'ユーザーが見つかりません。' });
+  }
+
+  const name = String(req.body.displayName || req.body.name || '').trim();
+  if (!name) {
+    return res.status(400).json({ message: '表示名を入力してください。' });
+  }
+  if (name.length > 60) {
+    return res.status(400).json({ message: '表示名は60文字以内で入力してください。' });
+  }
+
+  const grade = user.role === 'player' ? normalizePlayerGrade(req.body.grade) : '';
+  const nextProfile = {
+    ...PLAYER_META_DEFAULTS,
+    ...(user.profile || {}),
+    grade,
+  };
+
+  await updateUserName(user.id, name);
+  const updatedUser = await updateUserProfile(user.id, nextProfile);
+  req.session.user = sanitizeUser(updatedUser);
+  await saveSession(req);
+
+  return res.status(200).json({
+    message: user.role === 'player' ? 'プロフィールを更新しました。' : '表示名を更新しました。',
     user: sanitizeUser(updatedUser),
   });
 });
