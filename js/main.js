@@ -3583,6 +3583,18 @@
     const authPanels = Array.from(document.querySelectorAll('[data-auth-panel]'));
     if (!loginForm || !registerForm || authTabs.length === 0 || authPanels.length === 0) return;
     const message = qs('authMessage');
+    const registerRole = qs('registerRole');
+    const registerGradeRow = qs('registerGradeRow');
+    const registerGrade = qs('registerGrade');
+
+    function syncRegisterGradeField(role = '') {
+      const isPlayer = role === 'player';
+      if (registerGradeRow) registerGradeRow.hidden = !isPlayer;
+      if (registerGrade) {
+        registerGrade.disabled = !isPlayer;
+        if (!isPlayer) registerGrade.value = '';
+      }
+    }
 
     function setAuthView(activeTab) {
       authTabs.forEach((tabButton) => {
@@ -3610,6 +3622,10 @@
     });
 
     setAuthView('login');
+    syncRegisterGradeField(registerRole?.value || '');
+    registerRole?.addEventListener('change', (event) => {
+      syncRegisterGradeField(event.target.value || '');
+    });
 
     loginForm.addEventListener('submit', async (event) => {
       event.preventDefault();
