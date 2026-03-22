@@ -28,8 +28,10 @@
     coachConditionSelectedPlayerId: null,
     coachConditionWeightChartVisible: false,
     coachConditionWeightChartRange: 'all',
+    coachConditionSelectedGrade: '',
     coachDiaryNotes: [],
     coachDiarySelectedPlayerId: '',
+    coachDiarySelectedGrade: '',
     coachDiarySelectedDate: '',
     coachDiaryCalendarMonth: new Date().toISOString().slice(0, 7),
     coachDiarySelectedNoteId: null,
@@ -119,9 +121,50 @@
     { value: 'high', label: '高' },
   ];
   const defaultCoachDiaryStampOptions = ['いいね', 'ナイス', 'おつかれ', 'ファイト', 'すごい'];
+  const playerGradeOptions = ['', '1年', '2年', '3年'];
 
   function getGameTypeLabel(gameType) {
     return gameTypeLabels[gameType] || '未設定';
+  }
+
+  function normalizePlayerGrade(value) {
+    const normalized = String(value || '').trim();
+    return playerGradeOptions.includes(normalized) ? normalized : '';
+  }
+
+  function getPlayerGrade(player) {
+    if (!player) return '';
+    return normalizePlayerGrade(player.grade || (player.profile && player.profile.grade) || '');
+  }
+
+  function getPlayerGradeLabel(playerOrGrade) {
+    const grade = typeof playerOrGrade === 'string' ? normalizePlayerGrade(playerOrGrade) : getPlayerGrade(playerOrGrade);
+    return grade || '学年未設定';
+  }
+
+  function buildGradeOptionTags(selectedValue, { includeAll = false, includeUnset = true, allLabel = 'すべての学年' } = {}) {
+    const options = [];
+    if (includeAll) {
+      options.push({ value: '', label: allLabel });
+    } else if (includeUnset) {
+      options.push({ value: '', label: '未設定' });
+    }
+    playerGradeOptions
+      .filter((value) => value)
+      .forEach((value) => options.push({ value, label: value }));
+    return options.map((option) => `<option value="${escapeHtml(option.value)}" ${String(selectedValue || '') === option.value ? 'selected' : ''}>${escapeHtml(option.label)}</option>`).join('');
+  }
+
+  function getRosterPlayerById(playerId) {
+    return state.players.find((player) => Number(player.id) === Number(playerId)) || null;
+  }
+
+  function getCoachDiaryNotePlayerProfile(note) {
+    const rosterPlayer = getRosterPlayerById(note && note.playerId);
+    return {
+      ...(rosterPlayer || {}),
+      ...((note && note.playerProfile) || {}),
+    };
   }
 
   function qs(id) {
@@ -155,6 +198,15 @@
     if (value == null || value === '') return '—';
     const normalized = Number(value);
     return `${normalized.toFixed(normalized % 1 === 0 ? 0 : 1)}kg`;
+  }
+
+  function buildPlayerMetaLine(player) {
+    const metaParts = [
+      player.position || 'ポジション未設定',
+      getPlayerGradeLabel(player),
+      `${player.throws || '—'}投${player.bats || '—'}打`,
+    ];
+    return metaParts.join(' / ');
   }
 
   function escapeHtml(value) {
@@ -884,7 +936,7 @@
                 <div class="coach-player-summary-head">
                   <div>
                     <strong>${escapeHtml(player.name)}</strong>
-                    <div class="meta">${escapeHtml(player.position || 'ポジション未設定')} / ${escapeHtml(player.throws || '—')}投${escapeHtml(player.bats || '—')}打</div>
+                    <div class="meta">${escapeHtml(buildPlayerMetaLine(player))}</div>
                   </div>
                   <span class="summary-link-text">詳細へ</span>
                 </div>
@@ -951,11 +1003,12 @@
         <h2>チーム全体の成績確認</h2>
         <div class="table-wrap">
           <table class="table">
-            <thead><tr><th>選手</th><th>打率</th><th>OPS</th><th>打点</th><th>防御率</th><th>WHIP</th></tr></thead>
+            <thead><tr><th>選手</th><th>学年</th><th>打率</th><th>OPS</th><th>打点</th><th>防御率</th><th>WHIP</th></tr></thead>
             <tbody>
               ${playerSummaries.map(({ player, summary }) => `
                 <tr>
                   <td>${escapeHtml(player.name)}</td>
+                  <td>${escapeHtml(getPlayerGradeLabel(player))}</td>
                   <td>${fmt3(summary.batting.derived.battingAverage)}</td>
                   <td>${fmt3(summary.batting.derived.ops)}</td>
                   <td>${summary.batting.raw.runsBattedIn}</td>
@@ -2015,9 +2068,12 @@
   }
 
   function getFilteredCoachDiaryNotes() {
-    return [...state.coachDiaryNotes].filter((note) => (
-      !state.coachDiarySelectedPlayerId || Number(note.playerId) === Number(state.coachDiarySelectedPlayerId)
-    ));
+    return [...state.coachDiaryNotes].filter((note) => {
+      const noteGrade = getPlayerGrade(getCoachDiaryNotePlayerProfile(note));
+      if (state.coachDiarySelectedGrade && noteGrade !== state.coachDiarySelectedGrade) return false;
+      if (state.coachDiarySelectedPlayerId && Number(note.playerId) !== Number(state.coachDiarySelectedPlayerId)) return false;
+      return true;
+    });
   }
 
   function getCoachDiaryPlayers() {
@@ -2029,6 +2085,9 @@
         id: Number(player.id),
         name: player.name || `選手#${player.id}`,
         position: player.position || 'ポジション未設定',
+        grade: getPlayerGrade(player),
+        throws: player.throws || '—',
+        bats: player.bats || '—',
       });
     });
 
@@ -2045,10 +2104,14 @@
           id: playerId,
           name: existing.name || note.playerName || `選手#${note.playerId}`,
           position: existing.position || (note.playerProfile && note.playerProfile.position) || 'ポジション未設定',
+          grade: existing.grade || getPlayerGrade((note.playerProfile || {})),
+          throws: existing.throws || (note.playerProfile && note.playerProfile.throws) || '—',
+          bats: existing.bats || (note.playerProfile && note.playerProfile.bats) || '—',
         });
       });
 
     return [...playerMap.values()]
+      .filter((player) => !state.coachDiarySelectedGrade || getPlayerGrade(player) === state.coachDiarySelectedGrade)
       .sort((left, right) => String(left.name || '').localeCompare(String(right.name || ''), 'ja'));
   }
 
@@ -2133,6 +2196,7 @@
           </div>
           <div class="coach-diary-player-meta">
             <span>${escapeHtml(player.position)}</span>
+            <span>${escapeHtml(getPlayerGradeLabel(player))}</span>
             <span>${latestNote ? escapeHtml(formatDiaryDateLabel(latestNote.entryDate)) : '日誌なし'}</span>
           </div>
           <p class="coach-diary-excerpt">${escapeHtml(latestNote ? formatDiaryExcerpt(latestNote.body, 72) : 'まだ野球日誌の投稿がありません。')}</p>
@@ -2155,7 +2219,7 @@
         <div class="coach-condition-section-header">
           <div>
             <h2>選手一覧</h2>
-            <div class="small">カードで各選手の最新日誌の冒頭と反応状況を把握できます。選択中の選手に応じて下部のカレンダーと詳細を更新します。</div>
+            <div class="small">カードで各選手の最新日誌の冒頭と反応状況を把握できます。学年フィルターは選手選択・日付選択と併用されます。</div>
           </div>
           <div class="coach-diary-player-summary small" aria-label="表示中の野球日誌サマリー">
             <span>表示: <strong>${visibleNotes.length}件</strong></span>
@@ -2164,7 +2228,17 @@
             <span>対象: <strong>${escapeHtml(selectedPlayer ? selectedPlayer.name : '全選手')}</strong></span>
           </div>
         </div>
-        ${players.length ? `<div class="coach-condition-list coach-diary-player-grid">${playerCards}</div>` : '<div class="small">選手が登録されていません。</div>'}
+        <div class="inline-fields diary-filter-grid">
+          <div class="form-row compact-row">
+            <label for="coachDiaryGradeFilter">学年で絞り込み</label>
+            <select id="coachDiaryGradeFilter">${buildGradeOptionTags(state.coachDiarySelectedGrade, { includeAll: true })}</select>
+          </div>
+          <div class="form-row compact-row">
+            <label>選択中</label>
+            <div class="condition-status-badge ${selectedPlayer ? '' : 'muted'}">${escapeHtml(selectedPlayer ? `${selectedPlayer.name} / ${getPlayerGradeLabel(selectedPlayer)}` : '全選手')}</div>
+          </div>
+        </div>
+        ${players.length ? `<div class="coach-condition-list coach-diary-player-grid">${playerCards}</div>` : '<div class="small">該当する選手がいません。</div>'}
       </section>
     `;
   }
@@ -2301,7 +2375,7 @@
               <div class="coach-diary-detail-head">
                 <div>
                   <h3>${escapeHtml(note.playerName || `選手#${note.playerId}`)}</h3>
-                  <div class="small">${escapeHtml((note.playerProfile && note.playerProfile.position) || 'ポジション未設定')}</div>
+                  <div class="small">${escapeHtml(buildPlayerMetaLine(getCoachDiaryNotePlayerProfile(note)))}</div>
                 </div>
                 <div class="coach-diary-day-card-badges">
                   <span class="condition-status-badge">コメント ${(note.coachComments || []).length}件</span>
@@ -2361,6 +2435,10 @@
       await refreshCoachDiaryNotes();
     }
 
+    const availablePlayers = getCoachDiaryPlayers();
+    if (state.coachDiarySelectedPlayerId && !availablePlayers.some((player) => Number(player.id) === Number(state.coachDiarySelectedPlayerId))) {
+      state.coachDiarySelectedPlayerId = '';
+    }
     const notes = getFilteredCoachDiaryNotes();
     root.innerHTML = `
       <section class="card role-hero">
@@ -2378,6 +2456,13 @@
       state.coachDiaryCalendarMonth = state.coachDiarySelectedDate.slice(0, 7);
       state.coachDiarySelectedNoteId = latestNote ? latestNote.id : null;
     };
+
+    qs('coachDiaryGradeFilter')?.addEventListener('change', (event) => {
+      state.coachDiarySelectedGrade = event.target.value || '';
+      state.coachDiarySelectedPlayerId = '';
+      resetCoachDiaryDateToLatest();
+      renderCoachDiary({ reload: false });
+    });
 
     root.querySelectorAll('[data-coach-diary-player]').forEach((button) => {
       button.addEventListener('click', () => {
@@ -2946,9 +3031,16 @@
     }
   }
 
-  function getCoachConditionRecordsForDate(entryDate) {
+  function getFilteredCoachConditionPlayers() {
+    return [...state.coachConditionPlayers]
+      .filter((player) => !state.coachConditionSelectedGrade || getPlayerGrade(player.profile || player) === state.coachConditionSelectedGrade)
+      .sort((left, right) => String(left.name || '').localeCompare(String(right.name || ''), 'ja'));
+  }
+
+  function getCoachConditionRecordsForDate(entryDate, visiblePlayers = getFilteredCoachConditionPlayers()) {
+    const visiblePlayerIds = new Set(visiblePlayers.map((player) => Number(player.id)));
     return [...state.coachConditionRecords]
-      .filter((record) => record.entryDate === entryDate)
+      .filter((record) => record.entryDate === entryDate && visiblePlayerIds.has(Number(record.userId)))
       .sort((left, right) => {
         const leftKey = `${left.updatedAt || ''}-${String(left.id || '').padStart(8, '0')}`;
         const rightKey = `${right.updatedAt || ''}-${String(right.id || '').padStart(8, '0')}`;
@@ -2956,8 +3048,8 @@
       });
   }
 
-  function getCoachConditionPlayerById(playerId) {
-    return state.coachConditionPlayers.find((player) => Number(player.id) === Number(playerId)) || null;
+  function getCoachConditionPlayerById(playerId, players = getFilteredCoachConditionPlayers()) {
+    return players.find((player) => Number(player.id) === Number(playerId)) || null;
   }
 
   function getCoachConditionRecordForPlayerAndDate(playerId, entryDate) {
@@ -2976,14 +3068,15 @@
       });
   }
 
-  function buildCoachConditionCalendar() {
+  function buildCoachConditionCalendar(visiblePlayers = getFilteredCoachConditionPlayers()) {
     const [yearValue, monthValue] = String(state.coachConditionCalendarMonth || new Date().toISOString().slice(0, 7)).split('-');
     const year = Number(yearValue);
     const monthIndex = Number(monthValue) - 1;
     const monthStart = new Date(year, monthIndex, 1);
     const monthEnd = new Date(year, monthIndex + 1, 0);
     const startOffset = monthStart.getDay();
-    const countsByDate = getConditionRecordCountsByDate(state.coachConditionRecords);
+    const visiblePlayerIds = new Set(visiblePlayers.map((player) => Number(player.id)));
+    const countsByDate = getConditionRecordCountsByDate(state.coachConditionRecords.filter((record) => visiblePlayerIds.has(Number(record.userId))));
     const cells = [];
 
     for (let i = 0; i < startOffset; i += 1) {
@@ -3163,10 +3256,10 @@
     `;
   }
 
-  function buildCoachConditionList(selectedDate) {
-    const recordsForDate = getCoachConditionRecordsForDate(selectedDate);
+  function buildCoachConditionList(selectedDate, visiblePlayers = getFilteredCoachConditionPlayers()) {
+    const recordsForDate = getCoachConditionRecordsForDate(selectedDate, visiblePlayers);
     const recordMap = new Map(recordsForDate.map((record) => [Number(record.userId), record]));
-    const items = state.coachConditionPlayers.map((player) => {
+    const items = visiblePlayers.map((player) => {
       const record = recordMap.get(Number(player.id)) || null;
       const isSelected = Number(player.id) === Number(state.coachConditionSelectedPlayerId);
       return `
@@ -3176,6 +3269,7 @@
             <span class="condition-status-badge coach-condition-entry-badge ${record ? '' : 'muted'}">${record ? '入力あり' : '未入力'}</span>
           </div>
           <div class="coach-condition-primary-status ${record ? '' : 'is-empty'}">${escapeHtml(record ? getConditionStatusLabel(record.conditionStatus, record) : '未入力')}</div>
+          <div class="meta">${escapeHtml(buildPlayerMetaLine(player.profile || player))}</div>
           <div class="coach-condition-summary-grid">
             <div>
               <span class="meta-label">体重</span>
@@ -3199,17 +3293,27 @@
         <div class="coach-condition-section-header">
           <div>
             <h2>選手一覧</h2>
-            <div class="small">${escapeHtml(formatDiaryDateLabel(selectedDate))}時点の各選手の最新体調を簡易表示しています。</div>
+            <div class="small">${escapeHtml(formatDiaryDateLabel(selectedDate))}時点の各選手の最新体調を簡易表示しています。学年フィルターは日付選択と併用されます。</div>
           </div>
-          <div class="small">入力件数: ${recordsForDate.length} / ${state.coachConditionPlayers.length}</div>
+          <div class="small">入力件数: ${recordsForDate.length} / ${visiblePlayers.length}</div>
         </div>
-        ${state.coachConditionPlayers.length ? `<div class="coach-condition-list">${items}</div>` : '<div class="small">選手が登録されていません。</div>'}
+        <div class="inline-fields diary-filter-grid">
+          <div class="form-row compact-row">
+            <label for="coachConditionGradeFilter">学年で絞り込み</label>
+            <select id="coachConditionGradeFilter">${buildGradeOptionTags(state.coachConditionSelectedGrade, { includeAll: true })}</select>
+          </div>
+          <div class="form-row compact-row">
+            <label>表示対象</label>
+            <div class="condition-status-badge ${visiblePlayers.length ? '' : 'muted'}">${escapeHtml(state.coachConditionSelectedGrade ? getPlayerGradeLabel(state.coachConditionSelectedGrade) : '全学年')}</div>
+          </div>
+        </div>
+        ${visiblePlayers.length ? `<div class="coach-condition-list">${items}</div>` : '<div class="small">該当する選手がいません。</div>'}
       </section>
     `;
   }
 
-  function buildCoachConditionDetail() {
-    const player = getCoachConditionPlayerById(state.coachConditionSelectedPlayerId);
+  function buildCoachConditionDetail(visiblePlayers = getFilteredCoachConditionPlayers()) {
+    const player = getCoachConditionPlayerById(state.coachConditionSelectedPlayerId, visiblePlayers);
     if (!player) {
       return '<section class="card"><h2>選手詳細</h2><div class="small">確認する選手を選択してください。</div></section>';
     }
@@ -3221,7 +3325,7 @@
         <div class="condition-detail-header">
           <div>
             <h2>${escapeHtml(player.name)} の体調詳細</h2>
-            <div class="small">${escapeHtml(formatDiaryDateLabel(state.coachConditionSelectedDate))}</div>
+            <div class="small">${escapeHtml(`${buildPlayerMetaLine(player.profile || player)} / ${formatDiaryDateLabel(state.coachConditionSelectedDate)}`)}</div>
           </div>
           ${record ? '<span class="condition-status-badge">入力あり</span>' : '<span class="condition-status-badge muted">未入力</span>'}
         </div>
@@ -3298,6 +3402,12 @@
       await refreshCoachConditionData();
     }
 
+    const visiblePlayers = getFilteredCoachConditionPlayers();
+    if (state.coachConditionSelectedPlayerId && !visiblePlayers.some((player) => Number(player.id) === Number(state.coachConditionSelectedPlayerId))) {
+      state.coachConditionSelectedPlayerId = Number(visiblePlayers[0]?.id || null);
+      state.coachConditionWeightChartVisible = false;
+    }
+
     const selectedDate = state.coachConditionSelectedDate || new Date().toISOString().slice(0, 10);
     root.innerHTML = `
       <section class="card role-hero">
@@ -3305,10 +3415,18 @@
         <h2>チーム体調一覧</h2>
         <p class="small">日付ごとの体調状況を一覧で確認し、選手詳細から履歴や体重推移まで追えます。</p>
       </section>
-      ${buildCoachConditionList(selectedDate)}
-      ${buildCoachConditionDetail()}
-      ${buildCoachConditionCalendar()}
+      ${buildCoachConditionList(selectedDate, visiblePlayers)}
+      ${buildCoachConditionDetail(visiblePlayers)}
+      ${buildCoachConditionCalendar(visiblePlayers)}
     `;
+
+    qs('coachConditionGradeFilter')?.addEventListener('change', (event) => {
+      state.coachConditionSelectedGrade = event.target.value || '';
+      const filteredPlayers = getFilteredCoachConditionPlayers();
+      state.coachConditionSelectedPlayerId = Number(filteredPlayers[0]?.id || null);
+      state.coachConditionWeightChartVisible = false;
+      renderCoachCondition({ reload: false });
+    });
 
     root.querySelectorAll('[data-coach-condition-player]').forEach((button) => {
       button.addEventListener('click', () => {
@@ -3344,7 +3462,7 @@
         state.coachConditionSelectedDate = button.dataset.coachConditionDate || selectedDate;
         state.coachConditionCalendarMonth = state.coachConditionSelectedDate.slice(0, 7);
         state.coachConditionWeightChartVisible = false;
-        const datedRecords = getCoachConditionRecordsForDate(state.coachConditionSelectedDate);
+        const datedRecords = getCoachConditionRecordsForDate(state.coachConditionSelectedDate, visiblePlayers);
         if (datedRecords.length && !datedRecords.some((record) => Number(record.userId) === Number(state.coachConditionSelectedPlayerId))) {
           state.coachConditionSelectedPlayerId = Number(datedRecords[0].userId);
         }
@@ -3372,6 +3490,7 @@
     qs('profileName').textContent = user.name;
     qs('profileRole').textContent = getRoleLabel(user.role);
     qs('profileTeam').textContent = '野球部';
+    if (qs('profileGrade')) qs('profileGrade').textContent = user.role === 'player' ? getPlayerGradeLabel(user.profile || {}) : '—';
     qs('logoutBtn')?.addEventListener('click', async () => {
       await api('/api/logout', { method: 'POST' });
       window.location.href = 'login.html';
@@ -3443,7 +3562,7 @@
         <section class="card role-hero">
           <div class="hero-kicker">監督専用</div>
           <h2>${escapeHtml(payload.player.name)} の個人成績サマリー</h2>
-          <p class="small">${escapeHtml(payload.player.position || 'ポジション未設定')} / ${escapeHtml(payload.player.throws || '—')}投${escapeHtml(payload.player.bats || '—')}打</p>
+          <p class="small">${escapeHtml(buildPlayerMetaLine(payload.player))}</p>
           <div class="actions">
             <a class="button button-secondary" href="index.html">ホームへ戻る</a>
             <a class="button button-secondary" href="coach.html">野球日誌へ</a>
@@ -3528,6 +3647,7 @@
             email: formData.get('email'),
             password: formData.get('password'),
             role: formData.get('role'),
+            grade: formData.get('role') === 'player' ? formData.get('grade') : '',
           }),
         });
         state.user = payload.user;

@@ -50,8 +50,11 @@ const PLAYER_META_DEFAULTS = {
   bats: '右',
   throws: '右',
   position: '未設定',
+  grade: '',
   personalGoal: '',
 };
+const PLAYER_GRADE_OPTIONS = Object.freeze(['1年', '2年', '3年']);
+const ALLOWED_PLAYER_GRADES = new Set(PLAYER_GRADE_OPTIONS);
 const GAME_TYPE_LABELS = {
   official: '公式戦',
   practice: '練習試合',
@@ -69,6 +72,11 @@ const COACH_DIARY_STAMPS = Object.freeze([
 function normalizeGameType(value) {
   const normalized = String(value || '').trim();
   return ALLOWED_GAME_TYPES.has(normalized) ? normalized : '';
+}
+
+function normalizePlayerGrade(value) {
+  const normalized = String(value || '').trim();
+  return ALLOWED_PLAYER_GRADES.has(normalized) ? normalized : '';
 }
 
 
@@ -350,6 +358,7 @@ async function getPlayerUsers() {
       role: user.role,
       ...PLAYER_META_DEFAULTS,
       ...(user.profile || {}),
+      grade: normalizePlayerGrade((user.profile || {}).grade),
     }))
     .sort((a, b) => a.id - b.id);
 }
@@ -791,6 +800,7 @@ app.post('/api/register', async (req, res) => {
   const email = normalizeEmail(req.body.email);
   const password = String(req.body.password || '');
   const role = String(req.body.role || '').trim();
+  const grade = normalizePlayerGrade(req.body.grade);
 
   if (!name || !email || !password || !role) {
     return res.status(400).json({ message: 'name, email, password, role は必須です。' });
@@ -808,7 +818,7 @@ app.post('/api/register', async (req, res) => {
     email,
     role,
     passwordHash,
-    profile: { ...PLAYER_META_DEFAULTS },
+    profile: { ...PLAYER_META_DEFAULTS, grade: role === 'player' ? grade : '' },
   });
 
   req.session.user = sanitizeUser(user);
@@ -881,7 +891,11 @@ app.get('/api/me', requireLogin, async (req, res) => {
 app.get('/api/players', requireLogin, async (req, res) => {
   if (req.session.user.role === 'player') {
     const user = await findUserById(req.session.user.id);
-    return res.status(200).json({ players: user ? [{ id: user.id, name: user.name, role: user.role, ...(user.profile || {}) }] : [] });
+    return res.status(200).json({
+      players: user
+        ? [{ id: user.id, name: user.name, role: user.role, ...PLAYER_META_DEFAULTS, ...(user.profile || {}), grade: normalizePlayerGrade((user.profile || {}).grade) }]
+        : [],
+    });
   }
   return res.status(200).json({ players: await getPlayerUsers() });
 });
@@ -1274,7 +1288,9 @@ app.get('/api/player-summaries/:playerId', requireRole(['coach']), async (req, r
       id: player.id,
       name: player.name,
       role: player.role,
+      ...PLAYER_META_DEFAULTS,
       ...(player.profile || {}),
+      grade: normalizePlayerGrade((player.profile || {}).grade),
     },
     summary,
   });
