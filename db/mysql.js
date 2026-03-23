@@ -297,6 +297,44 @@ async function initDatabase() {
     await pool.query(sql);
   }
 
+  const userReferenceTables = [
+    {
+      tableName: 'player_condition_records',
+      columns: [
+        { name: 'user_id', nullable: false },
+        { name: 'created_by', nullable: true },
+        { name: 'updated_by', nullable: true },
+      ],
+      foreignKeys: [],
+    },
+    {
+      tableName: 'baseball_diary_notes',
+      columns: [
+        { name: 'user_id', nullable: false },
+        { name: 'created_by', nullable: true },
+        { name: 'updated_by', nullable: true },
+      ],
+      foreignKeys: [
+        { name: 'fk_baseball_diary_notes_user', column: 'user_id', onDelete: 'CASCADE' },
+        { name: 'fk_baseball_diary_notes_created_by', column: 'created_by', onDelete: 'SET NULL' },
+        { name: 'fk_baseball_diary_notes_updated_by', column: 'updated_by', onDelete: 'SET NULL' },
+      ],
+    },
+    {
+      tableName: 'daily_logs',
+      columns: [
+        { name: 'user_id', nullable: false },
+        { name: 'created_by', nullable: true },
+        { name: 'updated_by', nullable: true },
+      ],
+      foreignKeys: [
+        { name: 'fk_daily_logs_user', column: 'user_id', onDelete: 'CASCADE' },
+        { name: 'fk_daily_logs_created_by', column: 'created_by', onDelete: 'SET NULL' },
+        { name: 'fk_daily_logs_updated_by', column: 'updated_by', onDelete: 'SET NULL' },
+      ],
+    },
+  ];
+
   const [columnRows] = await pool.query(
     `SELECT TABLE_NAME, COLUMN_NAME, COLUMN_TYPE
      FROM INFORMATION_SCHEMA.COLUMNS
@@ -304,14 +342,14 @@ async function initDatabase() {
        AND (
          (TABLE_NAME = 'games' AND COLUMN_NAME = 'game_type')
          OR (TABLE_NAME = 'users' AND COLUMN_NAME IN ('id', 'profile_json'))
-         OR (TABLE_NAME = 'player_condition_records' AND COLUMN_NAME IN ('user_id', 'created_by', 'updated_by'))
+         OR (TABLE_NAME IN (${userReferenceTables.map((table) => `'${table.tableName}'`).join(', ')})
+             AND COLUMN_NAME IN ('user_id', 'created_by', 'updated_by'))
        )`,
   );
 
   const hasGameTypeColumn = columnRows.some((row) => row.TABLE_NAME === 'games' && row.COLUMN_NAME === 'game_type');
   const hasProfileJsonColumn = columnRows.some((row) => row.TABLE_NAME === 'users' && row.COLUMN_NAME === 'profile_json');
   const userIdColumn = columnRows.find((row) => row.TABLE_NAME === 'users' && row.COLUMN_NAME === 'id');
-  const playerConditionUserColumns = columnRows.filter((row) => row.TABLE_NAME === 'player_condition_records');
 
   if (!hasGameTypeColumn) {
     await pool.query(
@@ -327,17 +365,50 @@ async function initDatabase() {
     );
   }
 
-  if (userIdColumn && playerConditionUserColumns.length) {
+  if (userIdColumn) {
     const userIdColumnType = userIdColumn.COLUMN_TYPE;
-    const requiresPlayerConditionUserTypeFix = playerConditionUserColumns.some((row) => row.COLUMN_TYPE !== userIdColumnType);
+    for (const table of userReferenceTables) {
+      const tableColumns = columnRows.filter((row) => row.TABLE_NAME === table.tableName);
+      if (!tableColumns.length) continue;
 
-    if (requiresPlayerConditionUserTypeFix) {
-      await pool.query(
-        `ALTER TABLE player_condition_records
-         MODIFY COLUMN user_id ${userIdColumnType} NOT NULL,
-         MODIFY COLUMN created_by ${userIdColumnType} NULL,
-         MODIFY COLUMN updated_by ${userIdColumnType} NULL`,
-      );
+      const requiresTypeFix = table.columns.some(({ name }) => {
+        const column = tableColumns.find((row) => row.COLUMN_NAME === name);
+        return column && column.COLUMN_TYPE !== userIdColumnType;
+      });
+
+      if (requiresTypeFix) {
+        const modifyClauses = table.columns.map(
+          ({ name, nullable }) => `MODIFY COLUMN ${name} ${userIdColumnType} ${nullable ? 'NULL' : 'NOT NULL'}`,
+        );
+
+        await pool.query(
+          `ALTER TABLE ${table.tableName}
+           ${modifyClauses.join(',\n           ')}`,
+        );
+      }
+    }
+
+    const [foreignKeyRows] = await pool.query(
+      `SELECT TABLE_NAME, CONSTRAINT_NAME
+       FROM INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS
+       WHERE CONSTRAINT_SCHEMA = DATABASE()
+         AND TABLE_NAME IN (${userReferenceTables.map((table) => `'${table.tableName}'`).join(', ')})`,
+    );
+
+    for (const table of userReferenceTables) {
+      for (const foreignKey of table.foreignKeys) {
+        const hasForeignKey = foreignKeyRows.some(
+          (row) => row.TABLE_NAME === table.tableName && row.CONSTRAINT_NAME === foreignKey.name,
+        );
+
+        if (!hasForeignKey) {
+          await pool.query(
+            `ALTER TABLE ${table.tableName}
+             ADD CONSTRAINT ${foreignKey.name}
+             FOREIGN KEY (${foreignKey.column}) REFERENCES users(id) ON DELETE ${foreignKey.onDelete}`,
+          );
+        }
+      }
     }
   }
 
