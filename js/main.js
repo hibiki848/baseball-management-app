@@ -38,6 +38,12 @@
     coachDiaryStampOptions: ['いいね', 'ナイス', 'おつかれ', 'ファイト', 'すごい'],
     coachDiaryReplyDraft: '',
     coachDiarySelectedStamp: '',
+    managerDailyLogs: [],
+    managerDailyLogMissingPlayers: [],
+    managerDailyLogSummary: null,
+    managerDailyLogSelectedPlayerId: null,
+    managerDailyLogSelectedDate: new Date().toISOString().slice(0, 10),
+    managerDailyLogCalendarMonth: new Date().toISOString().slice(0, 7),
     playerSummaryDetail: null,
   };
 
@@ -1456,6 +1462,81 @@
     }
   }
 
+  function normalizeYearMonth(value) {
+    const normalized = String(value || '').trim();
+    return /^\d{4}-\d{2}$/.test(normalized) ? normalized : new Date().toISOString().slice(0, 7);
+  }
+
+  function shiftYearMonth(yearMonth, offset) {
+    const [yearValue, monthValue] = String(normalizeYearMonth(yearMonth)).split('-');
+    const next = new Date(Number(yearValue), Number(monthValue) - 1 + Number(offset || 0), 1);
+    return `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}`;
+  }
+
+  function getMonthLabel(yearMonth) {
+    const [yearValue, monthValue] = String(normalizeYearMonth(yearMonth)).split('-');
+    const date = new Date(Number(yearValue), Number(monthValue) - 1, 1);
+    if (Number.isNaN(date.getTime())) return yearMonth;
+    return date.toLocaleDateString('ja-JP', { year: 'numeric', month: 'long' });
+  }
+
+  async function refreshManagerDailyLogs() {
+    const user = state.user || (await fetchCurrentUser());
+    if (!user || user.role !== 'manager') {
+      state.managerDailyLogs = [];
+      state.managerDailyLogMissingPlayers = [];
+      state.managerDailyLogSummary = null;
+      return;
+    }
+
+    const month = normalizeYearMonth(state.managerDailyLogCalendarMonth);
+    if (!state.managerDailyLogSelectedDate || !String(state.managerDailyLogSelectedDate).startsWith(month)) {
+      state.managerDailyLogSelectedDate = `${month}-${String(new Date().getDate()).padStart(2, '0')}`;
+    }
+
+    const payload = await api(`/api/manager/daily-logs?month=${encodeURIComponent(month)}&date=${encodeURIComponent(state.managerDailyLogSelectedDate)}`);
+    state.managerDailyLogs = payload.players || [];
+    state.managerDailyLogMissingPlayers = payload.missingPlayers || [];
+    state.managerDailyLogSummary = payload.summary || null;
+    state.managerDailyLogCalendarMonth = payload.month || month;
+    state.managerDailyLogSelectedDate = payload.selectedDate || state.managerDailyLogSelectedDate;
+
+    if (
+      state.managerDailyLogSelectedPlayerId
+      && !state.managerDailyLogs.some((player) => Number(player.id) === Number(state.managerDailyLogSelectedPlayerId))
+    ) {
+      state.managerDailyLogSelectedPlayerId = null;
+    }
+    if (!state.managerDailyLogSelectedPlayerId && state.managerDailyLogs[0]) {
+      state.managerDailyLogSelectedPlayerId = state.managerDailyLogs[0].id;
+    }
+  }
+
+  function getManagerDailyLogPlayerById(playerId) {
+    return state.managerDailyLogs.find((player) => Number(player.id) === Number(playerId)) || null;
+  }
+
+  function getManagerDailyLogSelectedPlayer() {
+    return getManagerDailyLogPlayerById(state.managerDailyLogSelectedPlayerId) || state.managerDailyLogs[0] || null;
+  }
+
+  function getManagerDailyLogStatusMeta(status) {
+    switch (status) {
+      case 'submitted':
+        return { symbol: '○', label: '提出済み', className: 'is-submitted' };
+      case 'missed':
+        return { symbol: '×', label: '未提出', className: 'is-missed' };
+      default:
+        return { symbol: '—', label: '未記録', className: 'is-unrecorded' };
+    }
+  }
+
+  function getManagerDailyLogPlayerMeta(player) {
+    if (!player) return '';
+    const parts = [player.position || 'ポジション未設定', getPlayerGradeLabel(player.grade || ''), `${player.throws || '—'}投${player.bats || '—'}打`];
+    return parts.join(' / ');
+  }
+
   async function refreshPlayerSummaryDetail(playerId) {
     if (!playerId) {
       state.playerSummaryDetail = null;
@@ -1495,6 +1576,217 @@
     if (state.scorebookUpload) renderScorebookPreview(state.scorebookUpload);
   }
 
+  function buildManagerDailyLogCalendar(player) {
+    const month = normalizeYearMonth(state.managerDailyLogCalendarMonth);
+    const [yearValue, monthValue] = month.split('-');
+    const year = Number(yearValue);
+    const monthIndex = Number(monthValue) - 1;
+    const monthStart = new Date(year, monthIndex, 1);
+    const monthEnd = new Date(year, monthIndex + 1, 0);
+    const startOffset = monthStart.getDay();
+    const entriesByDate = new Map(((player && player.calendar) || []).map((entry) => [entry.entryDate, entry]));
+    const cells = [];
+
+    for (let i = 0; i < startOffset; i += 1) {
+      cells.push('<div class="calendar-day is-empty" aria-hidden="true"></div>');
+    }
+
+    for (let day = 1; day <= monthEnd.getDate(); day += 1) {
+      const isoDate = `${month}-${String(day).padStart(2, '0')}`;
+      const calendarEntry = entriesByDate.get(isoDate) || { status: 'unrecorded' };
+      const statusMeta = getManagerDailyLogStatusMeta(calendarEntry.status);
+      const isSelected = state.managerDailyLogSelectedDate === isoDate;
+      const isToday = isoDate === new Date().toISOString().slice(0, 10);
+      cells.push(`
+        <button
+          type="button"
+          class="calendar-day manager-log-calendar-day ${statusMeta.className} ${isSelected ? 'is-selected' : ''} ${isToday ? 'is-today' : ''}"
+          data-manager-daily-log-date="${isoDate}"
+          aria-pressed="${String(isSelected)}"
+        >
+          <span class="calendar-day-number">${day}</span>
+          <span class="manager-log-calendar-symbol">${statusMeta.symbol}</span>
+          <span class="calendar-day-count ${calendarEntry.status === 'unrecorded' ? 'placeholder' : ''}">${statusMeta.label}</span>
+        </button>
+      `);
+    }
+
+    return `
+      <section class="card manager-log-calendar-card">
+        <div class="diary-calendar-header">
+          <div>
+            <h2>${player ? `${escapeHtml(player.name)} の提出カレンダー` : '提出カレンダー'}</h2>
+            <p class="small">○: 提出済み / ×: 未提出 / —: まだ記録していない日です。</p>
+          </div>
+          <div class="calendar-month-nav">
+            <button type="button" class="button-secondary" data-manager-daily-log-calendar-nav="-1">前月</button>
+            <strong>${escapeHtml(getMonthLabel(month))}</strong>
+            <button type="button" class="button-secondary" data-manager-daily-log-calendar-nav="1">次月</button>
+          </div>
+        </div>
+        <div class="calendar-weekdays">
+          <span>日</span><span>月</span><span>火</span><span>水</span><span>木</span><span>金</span><span>土</span>
+        </div>
+        <div class="calendar-grid">${cells.join('')}</div>
+      </section>
+    `;
+  }
+
+  function buildManagerDailyLogPanel() {
+    const selectedPlayer = getManagerDailyLogSelectedPlayer();
+    const summary = state.managerDailyLogSummary || { totalPlayers: 0, submittedPlayers: 0, missingPlayers: 0, submissionRate: 0 };
+    const missingPlayersMarkup = state.managerDailyLogMissingPlayers.length
+      ? `<div class="manager-log-chip-list">${state.managerDailyLogMissingPlayers.map((player) => {
+          const statusMeta = getManagerDailyLogStatusMeta(player.status);
+          return `<span class="tag-chip manager-log-status-chip ${statusMeta.className}">${escapeHtml(player.name)} / ${escapeHtml(getPlayerGradeLabel(player.grade || ''))} / ${statusMeta.label}</span>`;
+        }).join('')}</div>`
+      : '<div class="small success-text">未提出の選手はいません。</div>';
+
+    const rosterRows = state.managerDailyLogs.map((player) => {
+      const statusMeta = getManagerDailyLogStatusMeta(player.selectedDateStatus && player.selectedDateStatus.status);
+      const isSelected = Number(selectedPlayer && selectedPlayer.id) === Number(player.id);
+      return `
+        <tr class="${isSelected ? 'manager-log-table-row-selected' : ''}">
+          <td>
+            <button type="button" class="inline-link manager-log-player-link" data-manager-daily-log-player="${player.id}">${escapeHtml(player.name)}</button>
+            <div class="meta">${escapeHtml(getPlayerGradeLabel(player.grade || ''))} / ${escapeHtml(player.position || 'ポジション未設定')}</div>
+          </td>
+          <td><span class="condition-status-badge ${statusMeta.className}">${statusMeta.symbol} ${statusMeta.label}</span></td>
+          <td>${escapeHtml(String(player.streak || 0))}日</td>
+          <td>${escapeHtml(String((player.monthRate && player.monthRate.percentage) || 0))}%</td>
+          <td>
+            <div class="manager-log-table-actions">
+              <button type="button" class="button-secondary" data-manager-daily-log-mark="submitted" data-manager-daily-log-player="${player.id}">提出済み</button>
+              <button type="button" class="button-danger" data-manager-daily-log-mark="missed" data-manager-daily-log-player="${player.id}">未提出</button>
+            </div>
+          </td>
+        </tr>
+      `;
+    }).join('');
+
+    const selectedStatusMeta = getManagerDailyLogStatusMeta(selectedPlayer && selectedPlayer.selectedDateStatus && selectedPlayer.selectedDateStatus.status);
+
+    return `
+      <section class="card">
+        <div class="card-head-actions manager-log-head-actions">
+          <div>
+            <h2>野球日誌チェック</h2>
+            <p class="small">日付単位で提出状況を記録し、ストリークと提出率を自動表示します。</p>
+          </div>
+          <div class="manager-log-date-controls">
+            <label class="compact-row" for="managerDailyLogDate">チェック日</label>
+            <input id="managerDailyLogDate" type="date" value="${escapeHtml(state.managerDailyLogSelectedDate)}" />
+          </div>
+        </div>
+        <div class="grid manager-log-summary-grid">
+          <div class="stat-card"><div class="stat-label">対象選手数</div><div class="stat-value">${summary.totalPlayers}</div></div>
+          <div class="stat-card"><div class="stat-label">提出済み</div><div class="stat-value">${summary.submittedPlayers}</div></div>
+          <div class="stat-card"><div class="stat-label">未提出</div><div class="stat-value">${summary.missingPlayers}</div></div>
+          <div class="stat-card"><div class="stat-label">当日提出率</div><div class="stat-value">${summary.submissionRate}%</div></div>
+        </div>
+        <div class="compact-top">
+          <h3>未提出の選手一覧</h3>
+          ${missingPlayersMarkup}
+        </div>
+      </section>
+      <section class="card manager-log-player-overview-card">
+        <div class="coach-condition-section-header">
+          <div>
+            <h2>選手別ステータス</h2>
+            <p class="small">選択日: ${escapeHtml(formatDiaryDateLabel(state.managerDailyLogSelectedDate))}</p>
+          </div>
+          ${selectedPlayer ? `
+            <div class="manager-log-selected-player-summary">
+              <div class="condition-status-badge ${selectedStatusMeta.className}">${selectedStatusMeta.symbol} ${selectedStatusMeta.label}</div>
+              <div class="small">${escapeHtml(selectedPlayer.name)} / ストリーク ${escapeHtml(String(selectedPlayer.streak || 0))}日 / 今月 ${escapeHtml(String((selectedPlayer.monthRate && selectedPlayer.monthRate.percentage) || 0))}%</div>
+            </div>
+          ` : ''}
+        </div>
+        ${selectedPlayer ? `
+          <div class="list-item manager-log-selected-player-card">
+            <strong>${escapeHtml(selectedPlayer.name)}</strong>
+            <div class="meta">${escapeHtml(getManagerDailyLogPlayerMeta(selectedPlayer))}</div>
+            <div class="manager-log-selected-player-actions">
+              <button type="button" class="button-secondary" data-manager-daily-log-mark="submitted" data-manager-daily-log-player="${selectedPlayer.id}">この日を提出済みにする</button>
+              <button type="button" class="button-danger" data-manager-daily-log-mark="missed" data-manager-daily-log-player="${selectedPlayer.id}">この日を未提出にする</button>
+            </div>
+          </div>
+        ` : '<div class="small">選手データがありません。</div>'}
+        <div class="table-wrap compact-top">
+          <table class="table">
+            <thead><tr><th>選手</th><th>状態</th><th>連続提出</th><th>今月提出率</th><th>操作</th></tr></thead>
+            <tbody>${rosterRows || '<tr><td colspan="5">選手がいません。</td></tr>'}</tbody>
+          </table>
+        </div>
+      </section>
+      ${buildManagerDailyLogCalendar(selectedPlayer)}
+    `;
+  }
+
+  async function renderManagerDailyLogs(options = {}) {
+    const root = qs('managerDailyLogsRoot');
+    if (!root) return;
+    if (options.reload !== false) {
+      await refreshManagerDailyLogs();
+    }
+    root.innerHTML = buildManagerDailyLogPanel();
+
+    qs('managerDailyLogDate')?.addEventListener('change', async (event) => {
+      state.managerDailyLogSelectedDate = event.target.value || state.managerDailyLogSelectedDate;
+      if (state.managerDailyLogSelectedDate) {
+        state.managerDailyLogCalendarMonth = state.managerDailyLogSelectedDate.slice(0, 7);
+      }
+      await renderManagerDailyLogs();
+    });
+
+    root.querySelectorAll('[data-manager-daily-log-player]').forEach((button) => {
+      button.addEventListener('click', async () => {
+        if (button.dataset.managerDailyLogMark) return;
+        state.managerDailyLogSelectedPlayerId = Number(button.dataset.managerDailyLogPlayer || 0) || null;
+        await renderManagerDailyLogs({ reload: false });
+      });
+    });
+
+    root.querySelectorAll('[data-manager-daily-log-calendar-nav]').forEach((button) => {
+      button.addEventListener('click', async () => {
+        const nextMonth = shiftYearMonth(state.managerDailyLogCalendarMonth, Number(button.dataset.managerDailyLogCalendarNav || 0));
+        state.managerDailyLogCalendarMonth = nextMonth;
+        if (!String(state.managerDailyLogSelectedDate || '').startsWith(nextMonth)) {
+          state.managerDailyLogSelectedDate = `${nextMonth}-01`;
+        }
+        await renderManagerDailyLogs();
+      });
+    });
+
+    root.querySelectorAll('[data-manager-daily-log-date]').forEach((button) => {
+      button.addEventListener('click', async () => {
+        state.managerDailyLogSelectedDate = button.dataset.managerDailyLogDate || state.managerDailyLogSelectedDate;
+        await renderManagerDailyLogs();
+      });
+    });
+
+    root.querySelectorAll('[data-manager-daily-log-mark]').forEach((button) => {
+      button.addEventListener('click', async () => {
+        const userId = Number(button.dataset.managerDailyLogPlayer || 0);
+        if (!userId || !state.managerDailyLogSelectedDate) return;
+        try {
+          await api('/api/manager/daily-logs', {
+            method: 'POST',
+            body: JSON.stringify({
+              userId,
+              entryDate: state.managerDailyLogSelectedDate,
+              submitted: button.dataset.managerDailyLogMark === 'submitted',
+            }),
+          });
+          state.managerDailyLogSelectedPlayerId = userId;
+          await renderManagerDailyLogs();
+        } catch (error) {
+          window.alert(error.message);
+        }
+      });
+    });
+  }
+
   async function renderRoleWorkspace() {
     const root = qs('roleWorkspaceRoot');
     if (!root) return;
@@ -1517,6 +1809,7 @@
         </section>
       `);
       blocks.push(buildPlayerSummaryTable(state.dashboard.playerSummaries));
+      blocks.push('<section id="managerDailyLogsRoot"></section>');
     } else if (user.role === 'player') {
       blocks.push(buildPersonalSummaryCard(state.dashboard.personalSummary, user));
       blocks.push(`
@@ -1533,6 +1826,9 @@
       return;
     }
     root.innerHTML = blocks.join('');
+    if (user.role === 'manager') {
+      await renderManagerDailyLogs();
+    }
     bindGroundFlyToggles(root);
     bindManualForm();
     bindScorebookForm();

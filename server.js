@@ -13,6 +13,7 @@ const {
   deleteUserAccount,
   findBig3RecordByUserId,
   findConditionRecordByUserAndDate,
+  findDailyLogByUserAndDate,
   findDiaryNoteById,
   findGameById,
   findUserByEmail,
@@ -21,6 +22,7 @@ const {
   initDatabase,
   listBig3Records,
   listConditionRecords,
+  listDailyLogs,
   listDiaryNotes,
   listGames,
   listMeetings,
@@ -29,6 +31,7 @@ const {
   listUsers,
   sessionStore,
   updateDiaryNote,
+  upsertDailyLog,
   upsertBig3Record,
   upsertConditionRecord,
   upsertStatEntry,
@@ -259,6 +262,125 @@ function validateConditionRecordInput(rawInput = {}) {
       fatigueLevel,
     },
   };
+}
+
+function validateDailyLogInput(rawInput = {}) {
+  const userId = Number(rawInput.userId);
+  const entryDate = String(rawInput.entryDate || rawInput.date || '').trim();
+  const submitted = rawInput.submitted;
+
+  if (!userId) {
+    return { error: '対象選手を指定してください。' };
+  }
+  if (!entryDate) {
+    return { error: '日付を入力してください。' };
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(entryDate) || !isValidIsoDate(entryDate)) {
+    return { error: '実在する日付を入力してください。' };
+  }
+  if (typeof submitted !== 'boolean') {
+    return { error: '提出状況を選択してください。' };
+  }
+
+  return {
+    values: {
+      userId,
+      entryDate,
+      submitted,
+    },
+  };
+}
+
+function isValidYearMonth(value) {
+  if (!/^\d{4}-\d{2}$/.test(String(value || ''))) return false;
+  const [yearText, monthText] = String(value).split('-');
+  const year = Number(yearText);
+  const month = Number(monthText);
+  return Number.isInteger(year) && Number.isInteger(month) && month >= 1 && month <= 12;
+}
+
+function getMonthDateRange(yearMonth) {
+  const [yearText, monthText] = String(yearMonth).split('-');
+  const year = Number(yearText);
+  const monthIndex = Number(monthText) - 1;
+  const start = new Date(Date.UTC(year, monthIndex, 1));
+  const end = new Date(Date.UTC(year, monthIndex + 1, 0));
+  return {
+    start: start.toISOString().slice(0, 10),
+    end: end.toISOString().slice(0, 10),
+    daysInMonth: end.getUTCDate(),
+  };
+}
+
+function clampMonthRateEndDate(yearMonth, todayIsoDate) {
+  const monthRange = getMonthDateRange(yearMonth);
+  if (yearMonth !== String(todayIsoDate || '').slice(0, 7)) {
+    return monthRange.end;
+  }
+  return todayIsoDate < monthRange.start ? monthRange.start : todayIsoDate;
+}
+
+function getDailyLogSubmittedMap(logs) {
+  return new Map(logs.map((log) => [log.entryDate, Boolean(log.submitted)]));
+}
+
+function calculateDailyLogStreak(logs, baseDate) {
+  if (!baseDate) return 0;
+  const submittedByDate = getDailyLogSubmittedMap(logs);
+  let cursor = new Date(`${baseDate}T00:00:00Z`);
+  let streak = 0;
+  while (!Number.isNaN(cursor.getTime())) {
+    const isoDate = cursor.toISOString().slice(0, 10);
+    if (!submittedByDate.get(isoDate)) break;
+    streak += 1;
+    cursor.setUTCDate(cursor.getUTCDate() - 1);
+  }
+  return streak;
+}
+
+function calculateMonthlySubmissionRate(logs, yearMonth, todayIsoDate) {
+  if (!yearMonth || !isValidYearMonth(yearMonth)) {
+    return { submittedCount: 0, expectedDays: 0, percentage: 0 };
+  }
+
+  const submittedByDate = getDailyLogSubmittedMap(logs);
+  const monthRange = getMonthDateRange(yearMonth);
+  const rateEndDate = clampMonthRateEndDate(yearMonth, todayIsoDate);
+  const expectedDays = Math.max(
+    0,
+    Math.floor((new Date(`${rateEndDate}T00:00:00Z`) - new Date(`${monthRange.start}T00:00:00Z`)) / (24 * 60 * 60 * 1000)) + 1,
+  );
+
+  let submittedCount = 0;
+  for (let day = 1; day <= expectedDays; day += 1) {
+    const isoDate = `${yearMonth}-${String(day).padStart(2, '0')}`;
+    if (submittedByDate.get(isoDate)) {
+      submittedCount += 1;
+    }
+  }
+
+  return {
+    submittedCount,
+    expectedDays,
+    percentage: expectedDays ? Math.round((submittedCount / expectedDays) * 1000) / 10 : 0,
+  };
+}
+
+function buildDailyLogCalendar(logs, yearMonth) {
+  const submittedByDate = getDailyLogSubmittedMap(logs);
+  const { daysInMonth } = getMonthDateRange(yearMonth);
+  return Array.from({ length: daysInMonth }, (_value, index) => {
+    const isoDate = `${yearMonth}-${String(index + 1).padStart(2, '0')}`;
+    if (!submittedByDate.has(isoDate)) {
+      return { entryDate: isoDate, status: 'unrecorded', submitted: null };
+    }
+    const submitted = Boolean(submittedByDate.get(isoDate));
+    return {
+      entryDate: isoDate,
+      status: submitted ? 'submitted' : 'missed',
+      submitted,
+    };
+  });
 }
 
 function validateMeetingInput(rawInput = {}) {
@@ -1261,6 +1383,107 @@ app.get('/api/team-condition-records', requireRole(['coach']), async (req, res) 
         conditionStatusLabel: CONDITION_STATUS_LABELS[record.conditionStatus] || record.conditionStatus,
         fatigueLevelLabel: FATIGUE_LEVEL_LABELS[record.fatigueLevel] || record.fatigueLevel,
       })),
+  });
+});
+
+app.get('/api/manager/daily-logs', requireRole(['manager']), async (req, res) => {
+  const month = String(req.query.month || new Date().toISOString().slice(0, 7)).trim();
+  const selectedDate = String(req.query.date || `${month}-01`).trim();
+
+  if (!isValidYearMonth(month)) {
+    return res.status(400).json({ message: '対象月が不正です。' });
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(selectedDate) || !isValidIsoDate(selectedDate)) {
+    return res.status(400).json({ message: '対象日が不正です。' });
+  }
+
+  const [players, logs] = await Promise.all([getPlayerUsers(), listDailyLogs()]);
+  const logsByUserId = logs.reduce((map, log) => {
+    const current = map.get(log.userId) || [];
+    current.push(log);
+    map.set(log.userId, current);
+    return map;
+  }, new Map());
+  const todayIsoDate = new Date().toISOString().slice(0, 10);
+
+  const playerStatuses = players.map((player) => {
+    const playerLogs = logsByUserId.get(player.id) || [];
+    const selectedLog = playerLogs.find((log) => log.entryDate === selectedDate) || null;
+    const monthRate = calculateMonthlySubmissionRate(playerLogs, month, todayIsoDate);
+    return {
+      id: player.id,
+      name: player.name,
+      role: player.role,
+      grade: normalizePlayerGrade(player.grade),
+      position: player.position || '',
+      bats: player.bats || '',
+      throws: player.throws || '',
+      selectedDateStatus: selectedLog
+        ? {
+            entryDate: selectedLog.entryDate,
+            submitted: selectedLog.submitted,
+            status: selectedLog.submitted ? 'submitted' : 'missed',
+          }
+        : {
+            entryDate: selectedDate,
+            submitted: null,
+            status: 'unrecorded',
+          },
+      streak: calculateDailyLogStreak(playerLogs, selectedDate),
+      monthRate,
+      calendar: buildDailyLogCalendar(playerLogs, month),
+    };
+  });
+
+  const missingPlayers = playerStatuses
+    .filter((player) => player.selectedDateStatus.submitted !== true)
+    .map((player) => ({
+      id: player.id,
+      name: player.name,
+      grade: player.grade,
+      position: player.position,
+      status: player.selectedDateStatus.status,
+    }));
+
+  const submittedPlayers = playerStatuses.filter((player) => player.selectedDateStatus.submitted === true).length;
+
+  return res.status(200).json({
+    month,
+    selectedDate,
+    summary: {
+      totalPlayers: playerStatuses.length,
+      submittedPlayers,
+      missingPlayers: missingPlayers.length,
+      submissionRate: playerStatuses.length ? Math.round((submittedPlayers / playerStatuses.length) * 1000) / 10 : 0,
+    },
+    players: playerStatuses,
+    missingPlayers,
+  });
+});
+
+app.post('/api/manager/daily-logs', requireRole(['manager']), async (req, res) => {
+  const validation = validateDailyLogInput(req.body);
+  if (validation.error) {
+    return res.status(400).json({ message: validation.error });
+  }
+
+  const player = await findUserById(validation.values.userId);
+  if (!player || player.role !== 'player') {
+    return res.status(404).json({ message: '対象の選手が見つかりません。' });
+  }
+
+  const existingLog = await findDailyLogByUserAndDate(validation.values.userId, validation.values.entryDate);
+  const log = await upsertDailyLog({
+    userId: validation.values.userId,
+    entryDate: validation.values.entryDate,
+    submitted: validation.values.submitted,
+    createdBy: existingLog ? existingLog.createdBy : req.session.user.id,
+    updatedBy: req.session.user.id,
+  });
+
+  return res.status(existingLog ? 200 : 201).json({
+    message: validation.values.submitted ? '提出済みとして記録しました。' : '未提出として記録しました。',
+    log,
   });
 });
 

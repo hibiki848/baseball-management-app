@@ -1145,8 +1145,138 @@ button,
   margin-top: 8px;
 }
 
+.manager-log-head-actions {
+  align-items: end;
+}
+
+.manager-log-date-controls {
+  min-width: 180px;
+}
+
+.manager-log-summary-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.manager-log-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.manager-log-status-chip.is-submitted,
+.condition-status-badge.is-submitted {
+  background: rgba(24, 121, 78, 0.14);
+  color: var(--ok);
+}
+
+.manager-log-status-chip.is-missed,
+.condition-status-badge.is-missed {
+  background: rgba(196, 60, 60, 0.12);
+  color: var(--danger);
+}
+
+.manager-log-status-chip.is-unrecorded,
+.condition-status-badge.is-unrecorded {
+  background: #edf2f7;
+  color: var(--subtext);
+}
+
+.manager-log-player-overview-card h3 {
+  margin: 0 0 8px;
+  font-size: 0.92rem;
+}
+
+.manager-log-selected-player-summary {
+  display: grid;
+  justify-items: end;
+  gap: 6px;
+}
+
+.manager-log-selected-player-card {
+  display: grid;
+  gap: 8px;
+}
+
+.manager-log-selected-player-actions,
+.manager-log-table-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.manager-log-selected-player-actions .button,
+.manager-log-table-actions button {
+  width: auto;
+}
+
+.manager-log-table-row-selected {
+  background: rgba(22, 75, 134, 0.04);
+}
+
+.manager-log-player-link {
+  margin-top: 0;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  min-height: auto;
+  font: inherit;
+}
+
+.manager-log-calendar-card .calendar-day-count {
+  min-width: 54px;
+}
+
+.manager-log-calendar-day {
+  align-items: center;
+  text-align: center;
+}
+
+.manager-log-calendar-symbol {
+  font-size: 1.15rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.manager-log-calendar-day.is-submitted {
+  background: rgba(24, 121, 78, 0.06);
+}
+
+.manager-log-calendar-day.is-missed {
+  background: rgba(196, 60, 60, 0.05);
+}
+
+.manager-log-calendar-day.is-unrecorded {
+  background: #f8fafc;
+}
+
+.manager-log-calendar-day.is-submitted .manager-log-calendar-symbol {
+  color: var(--ok);
+}
+
+.manager-log-calendar-day.is-missed .manager-log-calendar-symbol {
+  color: var(--danger);
+}
+
+.manager-log-calendar-day.is-unrecorded .manager-log-calendar-symbol {
+  color: var(--subtext);
+}
+
 @media (max-width: 720px) {
   .app { max-width: 100%; }
+
+  .manager-log-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .manager-log-head-actions,
+  .manager-log-selected-player-actions,
+  .manager-log-table-actions {
+    display: grid;
+  }
+
+  .manager-log-selected-player-summary {
+    justify-items: start;
+  }
   .grid,
   .field-grid,
   .inline-fields,
