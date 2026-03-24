@@ -128,7 +128,7 @@
     { value: 'high', label: '高' },
   ];
   const defaultCoachDiaryStampOptions = ['いいね', 'ナイス', 'おつかれ', 'ファイト', 'すごい'];
-  const playerGradeOptions = ['', '1年', '2年', '3年'];
+  const playerGradeOptions = ['', '1年', '2年', '3年', 'マネージャー', 'その他'];
 
   const managerChecklistStorageKey = 'baseball-manager-checklist-v1';
   const defaultManagerChecklistItems = [
@@ -3963,6 +3963,38 @@
     qs('profileRole').textContent = getRoleLabel(user.role);
     qs('profileTeam').textContent = '野球部';
     if (qs('profileGrade')) qs('profileGrade').textContent = user.role === 'player' ? getPlayerGradeLabel(user.profile || {}) : '—';
+
+    const gradeSettingsCard = qs('gradeSettingsCard');
+    const gradeForm = qs('gradeForm');
+    const gradeSelect = qs('gradeSelect');
+    const gradeMessage = qs('gradeMessage');
+    if (gradeSettingsCard) {
+      gradeSettingsCard.hidden = user.role !== 'player';
+    }
+    if (gradeSelect) {
+      gradeSelect.value = user.role === 'player' ? getPlayerGrade(user.profile || {}) : '';
+    }
+    if (gradeForm && gradeMessage) {
+      gradeForm.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        try {
+          const payload = await api('/api/profile/grade', {
+            method: 'PUT',
+            body: JSON.stringify({ grade: gradeSelect ? gradeSelect.value : '' }),
+          });
+          gradeMessage.className = 'small success-text';
+          gradeMessage.textContent = payload.message || '学年を保存しました。';
+          const updatedUser = payload.user || user;
+          if (gradeSelect) gradeSelect.value = getPlayerGrade(updatedUser.profile || {});
+          if (qs('profileGrade')) qs('profileGrade').textContent = getPlayerGradeLabel(updatedUser.profile || {});
+          state.user = updatedUser;
+        } catch (error) {
+          gradeMessage.className = 'small error-text';
+          gradeMessage.textContent = error.message;
+        }
+      });
+    }
+
     qs('logoutBtn')?.addEventListener('click', async () => {
       await api('/api/logout', { method: 'POST' });
       window.location.href = 'login.html';
@@ -3985,7 +4017,7 @@
         message.textContent = error.message;
       }
     });
-    ['profileForm', 'emailForm', 'passwordForm'].forEach((id) => {
+    ['emailForm', 'passwordForm'].forEach((id) => {
       const form = qs(id);
       if (form) {
         form.addEventListener('submit', (event) => {

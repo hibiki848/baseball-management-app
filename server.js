@@ -56,7 +56,7 @@ const PLAYER_META_DEFAULTS = {
   grade: '',
   personalGoal: '',
 };
-const PLAYER_GRADE_OPTIONS = Object.freeze(['1年', '2年', '3年']);
+const PLAYER_GRADE_OPTIONS = Object.freeze(['1年', '2年', '3年', 'マネージャー', 'その他']);
 const ALLOWED_PLAYER_GRADES = new Set(PLAYER_GRADE_OPTIONS);
 const GAME_TYPE_LABELS = {
   official: '公式戦',
@@ -1148,6 +1148,28 @@ app.post('/api/stats/manual', requireRole(['manager', 'player']), async (req, re
     createdBy: req.session.user.id,
   });
   res.status(200).json({ message: '成績を保存しました。', entry: await serializeEntry(entry) });
+});
+
+
+app.put('/api/profile/grade', requireRole(['player']), async (req, res) => {
+  const user = await findUserById(req.session.user.id);
+  if (!user || user.role !== 'player') {
+    return res.status(404).json({ message: '対象の選手が見つかりません。' });
+  }
+
+  const grade = normalizePlayerGrade(req.body.grade);
+  const updatedUser = await updateUserProfile(user.id, {
+    ...PLAYER_META_DEFAULTS,
+    ...(user.profile || {}),
+    grade,
+  });
+  req.session.user = sanitizeUser(updatedUser);
+  await saveSession(req);
+
+  return res.status(200).json({
+    message: grade ? '学年を保存しました。' : '学年を未設定にしました。',
+    user: sanitizeUser(updatedUser),
+  });
 });
 
 app.put('/api/profile/personal-goal', requireRole(['player']), async (req, res) => {
