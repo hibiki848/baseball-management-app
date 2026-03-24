@@ -56,7 +56,7 @@ const PLAYER_META_DEFAULTS = {
   grade: '',
   personalGoal: '',
 };
-const PLAYER_GRADE_OPTIONS = Object.freeze(['1年', '2年', '3年', 'マネージャー', 'その他']);
+const PLAYER_GRADE_OPTIONS = Object.freeze(['1年', '2年', '3年', 'その他']);
 const ALLOWED_PLAYER_GRADES = new Set(PLAYER_GRADE_OPTIONS);
 const GAME_TYPE_LABELS = {
   official: '公式戦',
@@ -80,6 +80,17 @@ function normalizeGameType(value) {
 function normalizePlayerGrade(value) {
   const normalized = String(value || '').trim();
   return ALLOWED_PLAYER_GRADES.has(normalized) ? normalized : '';
+}
+
+function parsePlayerGradeInput(value) {
+  const normalized = String(value || '').trim();
+  if (!normalized) {
+    return { ok: true, grade: '' };
+  }
+  if (!ALLOWED_PLAYER_GRADES.has(normalized)) {
+    return { ok: false, message: '学年は 未設定 / 1年 / 2年 / 3年 / その他 から選択してください。' };
+  }
+  return { ok: true, grade: normalized };
 }
 
 
@@ -922,7 +933,11 @@ app.post('/api/register', async (req, res) => {
   const email = normalizeEmail(req.body.email);
   const password = String(req.body.password || '');
   const role = String(req.body.role || '').trim();
-  const grade = normalizePlayerGrade(req.body.grade);
+  const parsedGrade = parsePlayerGradeInput(req.body.grade);
+  if (!parsedGrade.ok) {
+    return res.status(400).json({ message: parsedGrade.message });
+  }
+  const grade = parsedGrade.grade;
 
   if (!name || !email || !password || !role) {
     return res.status(400).json({ message: 'name, email, password, role は必須です。' });
@@ -1157,7 +1172,11 @@ app.put('/api/profile/grade', requireRole(['player']), async (req, res) => {
     return res.status(404).json({ message: '対象の選手が見つかりません。' });
   }
 
-  const grade = normalizePlayerGrade(req.body.grade);
+  const parsedGrade = parsePlayerGradeInput(req.body.grade);
+  if (!parsedGrade.ok) {
+    return res.status(400).json({ message: parsedGrade.message });
+  }
+  const grade = parsedGrade.grade;
   const updatedUser = await updateUserProfile(user.id, {
     ...PLAYER_META_DEFAULTS,
     ...(user.profile || {}),
