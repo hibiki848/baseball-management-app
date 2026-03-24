@@ -128,7 +128,7 @@
     { value: 'high', label: '高' },
   ];
   const defaultCoachDiaryStampOptions = ['いいね', 'ナイス', 'おつかれ', 'ファイト', 'すごい'];
-  const playerGradeOptions = ['', '1年', '2年', '3年', 'マネージャー', 'その他'];
+  const playerGradeOptions = ['', '1年', '2年', '3年', 'その他'];
 
   const managerChecklistStorageKey = 'baseball-manager-checklist-v1';
   const defaultManagerChecklistItems = [
@@ -4022,7 +4022,7 @@
       if (form) {
         form.addEventListener('submit', (event) => {
           event.preventDefault();
-          const messageId = id === 'profileForm' ? 'profileMessage' : id === 'emailForm' ? 'emailMessage' : 'passwordMessage';
+          const messageId = id === 'emailForm' ? 'emailMessage' : 'passwordMessage';
           qs(messageId).className = 'small success-text';
           qs(messageId).textContent = '現在のサンプル実装ではプレビューのみ対応しています。';
         });
