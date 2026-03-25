@@ -633,8 +633,10 @@
       { href: 'index.html', page: 'home', label: 'ホーム' },
       { href: 'games.html', page: 'games', label: '試合' },
       { href: inputHref, page: inputPage, label: inputLabel },
-      { href: 'prepare.html', page: 'prepare', label: '試合準備' },
     ];
+    if (user.role === 'manager') {
+      links.push({ href: 'prepare.html', page: 'prepare', label: '試合準備' });
+    }
     if (user.role === 'player') {
       links.push({ href: 'diary.html', page: 'diary', label: '野球日誌' });
       links.push({ href: 'condition-check.html', page: 'condition-check', label: '体調' });
@@ -4369,6 +4371,10 @@
     }
     const requiredRole = document.body.dataset.rolePage;
     if (requiredRole && user.role !== requiredRole) {
+      window.location.href = 'index.html';
+      return false;
+    }
+    if (document.body.dataset.page === 'prepare' && user.role !== 'manager') {
       window.location.href = 'index.html';
       return false;
     }

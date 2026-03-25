@@ -1848,6 +1848,7 @@ app.use((req, res, next) => {
     '/player.html': ['player'],
     '/condition-check.html': ['player'],
     '/manager.html': ['manager'],
+    '/prepare.html': ['manager'],
     '/coach.html': ['coach'],
     '/coach-condition.html': ['coach'],
     '/player-detail.html': ['coach'],
