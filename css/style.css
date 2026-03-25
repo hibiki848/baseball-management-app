@@ -595,6 +595,28 @@ button,
   line-height: 1.6;
 }
 
+.diary-video-block {
+  display: grid;
+  gap: 8px;
+}
+
+.diary-video-list {
+  display: grid;
+  gap: 12px;
+}
+
+.diary-video-item {
+  display: grid;
+  gap: 6px;
+}
+
+.diary-video-item video {
+  width: 100%;
+  max-height: 320px;
+  border-radius: 10px;
+  background: #000;
+}
+
 .tag-list,
 .stamp-list {
   display: flex;

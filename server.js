@@ -1,6 +1,8 @@
 const express = require('express');
 const session = require('express-session');
 const bcrypt = require('bcrypt');
+const multer = require('multer');
+const { v2: cloudinary } = require('cloudinary');
 
 const {
   createGame,
@@ -8,9 +10,11 @@ const {
   createMeeting,
   createScorebookUpload,
   createUser,
+  createVideo,
   deleteConditionRecordByUserAndDate,
   deleteDiaryNote,
   deleteUserAccount,
+  deleteVideoById,
   findBig3RecordByUserId,
   findConditionRecordByUserAndDate,
   findDailyLogByUserAndDate,
@@ -71,6 +75,36 @@ const COACH_DIARY_STAMPS = Object.freeze([
   'ファイト',
   'すごい',
 ]);
+const ALLOWED_VIDEO_MIME_TYPES = new Set([
+  'video/mp4',
+  'video/quicktime',
+  'video/webm',
+  'video/x-m4v',
+]);
+const ALLOWED_VIDEO_EXTENSIONS = new Set(['mp4', 'mov', 'webm', 'm4v']);
+const MAX_VIDEO_SIZE_BYTES = 50 * 1024 * 1024;
+
+const uploadVideoMiddleware = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: MAX_VIDEO_SIZE_BYTES,
+    files: 5,
+  },
+  fileFilter: (_req, file, cb) => {
+    const extension = String(file.originalname || '').split('.').pop()?.toLowerCase() || '';
+    if (!ALLOWED_VIDEO_MIME_TYPES.has(file.mimetype) && !ALLOWED_VIDEO_EXTENSIONS.has(extension)) {
+      cb(new Error('動画形式は mp4 / mov / webm / m4v のみ対応しています。'));
+      return;
+    }
+    cb(null, true);
+  },
+});
+
+if (process.env.CLOUDINARY_URL) {
+  cloudinary.config({
+    secure: true,
+  });
+}
 
 function normalizeGameType(value) {
   const normalized = String(value || '').trim();
@@ -172,7 +206,64 @@ function validateDiaryNoteInput(rawInput = {}) {
     return { error: 'タグは1つあたり30文字以内で入力してください。' };
   }
 
-  return { values: { entryDate, body, tags } };
+  const videoUrls = Array.isArray(rawInput.videoUrls)
+    ? rawInput.videoUrls
+    : String(rawInput.videoUrls || '')
+        .split(/\r?\n|,/)
+        .map((url) => url.trim())
+        .filter(Boolean);
+  const normalizedVideoUrls = [...new Set(videoUrls)].slice(0, 10);
+  for (const videoUrl of normalizedVideoUrls) {
+    try {
+      const parsed = new URL(videoUrl);
+      if (!['http:', 'https:'].includes(parsed.protocol)) {
+        return { error: '動画URLは http または https のみ利用できます。' };
+      }
+    } catch (_error) {
+      return { error: '動画URLの形式が不正です。' };
+    }
+  }
+
+  const removeVideoIds = Array.isArray(rawInput.removeVideoIds)
+    ? rawInput.removeVideoIds
+    : String(rawInput.removeVideoIds || '')
+        .split(',')
+        .map((id) => Number(id))
+        .filter(Number.isFinite);
+
+  return {
+    values: {
+      entryDate,
+      body,
+      tags,
+      videoUrls: normalizedVideoUrls,
+      removeVideoIds: [...new Set(removeVideoIds)],
+    },
+  };
+}
+
+function parseVideoTitle(fileName) {
+  const base = String(fileName || '').trim().replace(/\.[^.]+$/, '');
+  return base.slice(0, 255) || '練習動画';
+}
+
+function uploadBufferToCloudinaryVideo(buffer) {
+  return new Promise((resolve, reject) => {
+    const stream = cloudinary.uploader.upload_stream(
+      {
+        folder: process.env.CLOUDINARY_DIARY_VIDEO_FOLDER || 'baseball-management/diary-videos',
+        resource_type: 'video',
+      },
+      (error, result) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve(result);
+      },
+    );
+    stream.end(buffer);
+  });
 }
 
 function validateCoachDiaryReplyInput(rawInput = {}) {
@@ -1267,6 +1358,35 @@ app.get('/api/coach/diary-notes', requireRole(['coach']), async (req, res) => {
   });
 });
 
+app.post('/api/diary-videos/upload', requireRole(['player']), uploadVideoMiddleware.array('videos', 5), async (req, res) => {
+  if (!process.env.CLOUDINARY_URL) {
+    return res.status(500).json({ message: '動画アップロード設定(CLOUDINARY_URL)が未設定です。' });
+  }
+  const files = Array.isArray(req.files) ? req.files : [];
+  if (!files.length) {
+    return res.status(400).json({ message: 'アップロードする動画を選択してください。' });
+  }
+
+  try {
+    const uploads = await Promise.all(
+      files.map(async (file) => {
+        const result = await uploadBufferToCloudinaryVideo(file.buffer);
+        return {
+          title: parseVideoTitle(file.originalname),
+          video: result.secure_url,
+          publicId: result.public_id,
+          fileBytes: Number(file.size || result.bytes || 0) || null,
+          mimeType: file.mimetype || null,
+          sourceType: 'upload',
+        };
+      }),
+    );
+    return res.status(201).json({ videos: uploads });
+  } catch (error) {
+    return res.status(500).json({ message: '動画アップロードに失敗しました。', detail: error.message });
+  }
+});
+
 app.post('/api/diary-notes', requireRole(['player']), async (req, res) => {
   const validation = validateDiaryNoteInput(req.body);
   if (validation.error) {
@@ -1281,7 +1401,34 @@ app.post('/api/diary-notes', requireRole(['player']), async (req, res) => {
     createdBy: req.session.user.id,
     updatedBy: req.session.user.id,
   });
-  return res.status(201).json({ message: '野球日誌を作成しました。', note });
+
+  const requestedVideos = Array.isArray(req.body.videos) ? req.body.videos : [];
+  const normalizedUploadedVideos = requestedVideos
+    .filter((video) => video && typeof video === 'object' && typeof video.video === 'string')
+    .slice(0, 10);
+
+  await Promise.all([
+    ...normalizedUploadedVideos.map((video) => createVideo({
+      userId: req.session.user.id,
+      dailyLogId: note.id,
+      video: String(video.video || '').slice(0, 1024),
+      title: String(video.title || '練習動画').slice(0, 255),
+      sourceType: video.sourceType === 'external' ? 'external' : 'upload',
+      publicId: video.publicId ? String(video.publicId).slice(0, 255) : null,
+      fileBytes: Number.isFinite(Number(video.fileBytes)) ? Number(video.fileBytes) : null,
+      mimeType: video.mimeType ? String(video.mimeType).slice(0, 100) : null,
+    })),
+    ...validation.values.videoUrls.map((videoUrl) => createVideo({
+      userId: req.session.user.id,
+      dailyLogId: note.id,
+      video: videoUrl,
+      title: '外部動画リンク',
+      sourceType: 'external',
+    })),
+  ]);
+
+  const latestNote = await findDiaryNoteById(note.id);
+  return res.status(201).json({ message: '野球日誌を作成しました。', note: latestNote });
 });
 
 app.put('/api/diary-notes/:id', requireRole(['player']), async (req, res) => {
@@ -1306,7 +1453,40 @@ app.put('/api/diary-notes/:id', requireRole(['player']), async (req, res) => {
     coachStamps: existingNote.coachStamps || [],
     updatedBy: req.session.user.id,
   });
-  return res.status(200).json({ message: '野球日誌を更新しました。', note });
+
+  const requestedVideos = Array.isArray(req.body.videos) ? req.body.videos : [];
+  const normalizedUploadedVideos = requestedVideos
+    .filter((video) => video && typeof video === 'object' && typeof video.video === 'string')
+    .slice(0, 10);
+
+  await Promise.all(normalizedUploadedVideos.map((video) => createVideo({
+    userId: req.session.user.id,
+    dailyLogId: note.id,
+    video: String(video.video || '').slice(0, 1024),
+    title: String(video.title || '練習動画').slice(0, 255),
+    sourceType: video.sourceType === 'external' ? 'external' : 'upload',
+    publicId: video.publicId ? String(video.publicId).slice(0, 255) : null,
+    fileBytes: Number.isFinite(Number(video.fileBytes)) ? Number(video.fileBytes) : null,
+    mimeType: video.mimeType ? String(video.mimeType).slice(0, 100) : null,
+  })));
+
+  const existingVideoIds = new Set((existingNote.videos || []).map((video) => Number(video.id)));
+  await Promise.all(
+    validation.values.removeVideoIds
+      .filter((videoId) => existingVideoIds.has(Number(videoId)))
+      .map((videoId) => deleteVideoById({ id: videoId, userId: req.session.user.id })),
+  );
+
+  await Promise.all(validation.values.videoUrls.map((videoUrl) => createVideo({
+    userId: req.session.user.id,
+    dailyLogId: note.id,
+    video: videoUrl,
+    title: '外部動画リンク',
+    sourceType: 'external',
+  })));
+
+  const latestNote = await findDiaryNoteById(note.id);
+  return res.status(200).json({ message: '野球日誌を更新しました。', note: latestNote });
 });
 
 app.post('/api/coach/diary-notes/:id/replies', requireRole(['coach']), async (req, res) => {
@@ -1636,6 +1816,19 @@ app.get('/api/stat-entries', requireLogin, async (req, res) => {
   const users = await listUsers();
   const userMap = new Map(users.map((user) => [user.id, user]));
   res.status(200).json({ entries: await Promise.all(visibleEntries.map((entry) => serializeEntry(entry, userMap))) });
+});
+
+app.use((error, _req, res, next) => {
+  if (error instanceof multer.MulterError) {
+    if (error.code === 'LIMIT_FILE_SIZE') {
+      return res.status(400).json({ message: '動画サイズは50MB以下にしてください。' });
+    }
+    return res.status(400).json({ message: `動画アップロードエラー: ${error.message}` });
+  }
+  if (error && typeof error.message === 'string' && error.message.includes('動画形式')) {
+    return res.status(400).json({ message: error.message });
+  }
+  return next(error);
 });
 
 app.use((req, res, next) => {

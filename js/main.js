@@ -500,6 +500,22 @@
     }, new Map());
   }
 
+  function buildDiaryVideosSection(videos = [], { editable = false } = {}) {
+    const safeVideos = Array.isArray(videos) ? videos : [];
+    if (!safeVideos.length && !editable) return '<div class="small">練習動画はまだありません。</div>';
+    return `
+      <div class="diary-video-list">
+        ${safeVideos.map((video) => `
+          <div class="diary-video-item">
+            <div class="meta">${escapeHtml(video.title || '練習動画')}</div>
+            <video controls preload="metadata" src="${escapeHtml(video.video || '')}"></video>
+            ${editable ? `<label class="small"><input type="checkbox" name="removeVideoIds" value="${Number(video.id)}" /> この動画を削除</label>` : ''}
+          </div>
+        `).join('')}
+      </div>
+    `;
+  }
+
   function bindDiaryNoteListActions(container) {
     if (!container || container.dataset.diaryNoteListBound === 'true') return;
 
@@ -550,9 +566,10 @@
   }
 
   async function api(path, options = {}) {
+    const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
     const res = await fetch(path, {
       credentials: 'include',
-      headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
+      headers: isFormData ? { ...(options.headers || {}) } : { 'Content-Type': 'application/json', ...(options.headers || {}) },
       ...options,
     });
     const isJson = (res.headers.get('content-type') || '').includes('application/json');
@@ -2481,7 +2498,7 @@
           <article class="list-item diary-note-item">
             <div class="diary-note-header">
               <div>
-                <strong>${escapeHtml(formatDiaryDateLabel(note.entryDate))}</strong>
+                <strong>${escapeHtml(formatDiaryDateLabel(note.entryDate))}${(note.videos || []).length ? ' 🎥' : ''}</strong>
                 <div class="meta">更新: ${escapeHtml(String(note.updatedAt || '').replace('T', ' ').slice(0, 16) || '未更新')}</div>
               </div>
               <div class="diary-note-actions">
@@ -2490,6 +2507,10 @@
               </div>
             </div>
             <p class="diary-note-body">${escapeHtml(formatDiaryExcerpt(note.body, 140))}</p>
+            <div class="diary-video-block">
+              <div class="stat-label">練習動画</div>
+              ${buildDiaryVideosSection(note.videos || [])}
+            </div>
             <div class="tag-list">
               ${(note.tags || []).length ? note.tags.map((tag) => `<span class="tag-chip">#${escapeHtml(tag)}</span>`).join('') : '<span class="small">タグなし</span>'}
             </div>
@@ -2565,6 +2586,17 @@
             <input id="diaryTags" name="tags" type="text" placeholder="例: 打撃, 守備, 練習試合" value="${escapeHtml(getDiaryTagInputValue((editingNote && editingNote.tags) || []))}" />
             <div class="small">カンマ区切りで複数タグを設定できます。</div>
           </div>
+          <div class="form-row">
+            <label for="diaryVideos">練習動画アップロード（50MBまで、複数可）</label>
+            <input id="diaryVideos" name="videos" type="file" accept="video/mp4,video/quicktime,video/webm,video/x-m4v,.mp4,.mov,.webm,.m4v" multiple />
+          </div>
+          <div class="form-row">
+            <label for="diaryVideoUrls">動画URL（任意）</label>
+            <textarea id="diaryVideoUrls" name="videoUrls" maxlength="3000" placeholder="https://example.com/video.mp4&#10;https://youtube.com/..."></textarea>
+          </div>
+          ${(editingNote && (editingNote.videos || []).length)
+            ? `<div class="form-row"><div class="stat-label">既存動画の削除</div>${buildDiaryVideosSection(editingNote.videos || [], { editable: true })}</div>`
+            : ''}
           <div class="actions">
             <button class="button-primary" type="submit">${editingNote ? '更新する' : '作成する'}</button>
             <button class="button-secondary" type="button" id="diaryResetBtn">${editingNote ? '新規作成に戻す' : '入力をクリア'}</button>
@@ -2600,11 +2632,25 @@
         entryDate: form.entryDate.value,
         body: form.body.value,
         tags: normalizeDiaryTags(form.tags.value),
+        videoUrls: form.videoUrls?.value || '',
+        removeVideoIds: Array.from(form.querySelectorAll('input[name="removeVideoIds"]:checked')).map((el) => Number(el.value)).filter(Number.isFinite),
       };
       const noteId = Number(form.noteId.value);
       message.className = 'small';
       message.textContent = '保存中です...';
       try {
+        const selectedFiles = Array.from(form.videos?.files || []);
+        let uploadedVideos = [];
+        if (selectedFiles.length) {
+          const uploadFormData = new FormData();
+          selectedFiles.forEach((file) => uploadFormData.append('videos', file));
+          const uploadPayload = await api('/api/diary-videos/upload', {
+            method: 'POST',
+            body: uploadFormData,
+          });
+          uploadedVideos = uploadPayload.videos || [];
+        }
+        payload.videos = uploadedVideos;
         await api(noteId ? `/api/diary-notes/${noteId}` : '/api/diary-notes', {
           method: noteId ? 'PUT' : 'POST',
           body: JSON.stringify(payload),

@@ -11,6 +11,7 @@ const requiredMigrationFiles = [
   '20260319_add_player_condition_records.sql',
   '20260321_add_game_meetings.sql',
   '20260323_add_daily_logs.sql',
+  '20260325_add_diary_videos.sql',
 ];
 
 function buildPoolOptions() {
@@ -274,6 +275,23 @@ function mapDailyLog(row) {
   };
 }
 
+function mapVideo(row) {
+  if (!row) return null;
+  return {
+    id: Number(row.id),
+    userId: Number(row.user_id),
+    dailyLogId: Number(row.daily_log_id),
+    video: row.video || '',
+    title: row.title || '',
+    sourceType: row.source_type || 'upload',
+    publicId: row.public_id || null,
+    fileBytes: row.file_bytes == null ? null : Number(row.file_bytes),
+    mimeType: row.mime_type || null,
+    createdAt: normalizeDateTime(row.created_at),
+    updatedAt: normalizeDateTime(row.updated_at),
+  };
+}
+
 function mapMeeting(row) {
   if (!row) return null;
   return {
@@ -331,6 +349,15 @@ async function initDatabase() {
         { name: 'fk_daily_logs_user', column: 'user_id', onDelete: 'CASCADE' },
         { name: 'fk_daily_logs_created_by', column: 'created_by', onDelete: 'SET NULL' },
         { name: 'fk_daily_logs_updated_by', column: 'updated_by', onDelete: 'SET NULL' },
+      ],
+    },
+    {
+      tableName: 'videos',
+      columns: [
+        { name: 'user_id', nullable: false },
+      ],
+      foreignKeys: [
+        { name: 'fk_videos_user', column: 'user_id', onDelete: 'CASCADE' },
       ],
     },
   ];
@@ -614,6 +641,45 @@ async function upsertBig3Record({ userId, benchPress, squat, deadlift }) {
   return findBig3RecordByUserId(userId);
 }
 
+async function listVideosByDailyLogIds(dailyLogIds = []) {
+  const ids = [...new Set((dailyLogIds || []).map((id) => Number(id)).filter(Number.isFinite))];
+  if (!ids.length) return [];
+  const [rows] = await pool.query(
+    `SELECT *
+     FROM videos
+     WHERE daily_log_id IN (?)
+     ORDER BY created_at DESC, id DESC`,
+    [ids],
+  );
+  return rows.map(mapVideo);
+}
+
+async function listVideosByDailyLogId(dailyLogId) {
+  const [rows] = await pool.query(
+    `SELECT *
+     FROM videos
+     WHERE daily_log_id = ?
+     ORDER BY created_at DESC, id DESC`,
+    [dailyLogId],
+  );
+  return rows.map(mapVideo);
+}
+
+async function createVideo({ userId, dailyLogId, video, title, sourceType = 'upload', publicId = null, fileBytes = null, mimeType = null }) {
+  const [result] = await pool.query(
+    `INSERT INTO videos (user_id, daily_log_id, video, title, source_type, public_id, file_bytes, mime_type)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [userId, dailyLogId, video, title || '', sourceType, publicId, fileBytes, mimeType],
+  );
+  const [rows] = await pool.query('SELECT * FROM videos WHERE id = ? LIMIT 1', [result.insertId]);
+  return mapVideo(rows[0]);
+}
+
+async function deleteVideoById({ id, userId }) {
+  const [result] = await pool.query('DELETE FROM videos WHERE id = ? AND user_id = ? LIMIT 1', [id, userId]);
+  return Number(result.affectedRows || 0) > 0;
+}
+
 async function listDiaryNotes(filters = {}) {
   const clauses = [];
   const values = [];
@@ -633,12 +699,23 @@ async function listDiaryNotes(filters = {}) {
      ORDER BY entry_date DESC, updated_at DESC, id DESC`,
     values,
   );
-  return rows.map(mapDiaryNote);
+  const notes = rows.map(mapDiaryNote);
+  const videos = await listVideosByDailyLogIds(notes.map((note) => note.id));
+  const videoMap = videos.reduce((map, video) => {
+    const key = Number(video.dailyLogId);
+    if (!map.has(key)) map.set(key, []);
+    map.get(key).push(video);
+    return map;
+  }, new Map());
+  return notes.map((note) => ({ ...note, videos: videoMap.get(Number(note.id)) || [] }));
 }
 
 async function findDiaryNoteById(id) {
   const [rows] = await pool.query('SELECT * FROM baseball_diary_notes WHERE id = ? LIMIT 1', [id]);
-  return mapDiaryNote(rows[0]);
+  const note = mapDiaryNote(rows[0]);
+  if (!note) return null;
+  const videos = await listVideosByDailyLogId(note.id);
+  return { ...note, videos };
 }
 
 async function createDiaryNote({ userId, entryDate, body, tags, coachComments, coachStamps, createdBy, updatedBy }) {
@@ -868,9 +945,11 @@ module.exports = {
   createMeeting,
   createScorebookUpload,
   createUser,
+  createVideo,
   deleteConditionRecordByUserAndDate,
   deleteDiaryNote,
   deleteUserAccount,
+  deleteVideoById,
   findConditionRecordByUserAndDate,
   findDailyLogByUserAndDate,
   findDiaryNoteById,
@@ -885,6 +964,7 @@ module.exports = {
   listConditionRecords,
   listDailyLogs,
   listDiaryNotes,
+  listVideosByDailyLogId,
   listGames,
   listMeetings,
   listScorebookUploads,
