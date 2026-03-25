@@ -1,7 +1,7 @@
 CREATE TABLE IF NOT EXISTS videos (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  user_id BIGINT UNSIGNED NOT NULL,
-  daily_log_id BIGINT UNSIGNED NOT NULL,
+  user_id INT NOT NULL,
+  daily_log_id INT NOT NULL,
   video VARCHAR(1024) NOT NULL,
   title VARCHAR(255) NOT NULL DEFAULT '',
   source_type ENUM('upload','external') NOT NULL DEFAULT 'upload',
