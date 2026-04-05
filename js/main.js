@@ -625,15 +625,18 @@
     const current = document.body.dataset.page;
     const rolePage = document.body.dataset.rolePage;
     const isPlayerPage = rolePage === 'player' || ['player', 'diary'].includes(current);
-    const defaultInputHref = user.role === 'coach' ? 'coach.html' : 'condition.html';
-    const defaultInputPage = user.role === 'coach' ? 'coach' : 'condition';
-    const inputHref = rolePage && ['coach', 'manager', 'player'].includes(rolePage)
-      ? `${rolePage}.html`
-      : defaultInputHref;
-    const inputPage = rolePage && ['coach', 'manager', 'player'].includes(rolePage)
-      ? rolePage
-      : defaultInputPage;
-    const inputLabel = user.role === 'coach' ? '野球日誌' : '入力';
+    const roleInputConfig = {
+      coach: { href: 'coach.html', page: 'coach', label: '野球日誌' },
+      manager: { href: 'manager.html', page: 'manager', label: '入力' },
+      player: { href: 'condition.html', page: 'condition', label: '入力' },
+    };
+    const fallbackInputConfig = roleInputConfig.player;
+    const userInputConfig = roleInputConfig[user.role] || fallbackInputConfig;
+    const rolePageInputConfig = roleInputConfig[rolePage];
+    const shouldUseRolePageForInput = rolePageInputConfig && rolePage === user.role;
+    const inputHref = shouldUseRolePageForInput ? rolePageInputConfig.href : userInputConfig.href;
+    const inputPage = shouldUseRolePageForInput ? rolePageInputConfig.page : userInputConfig.page;
+    const inputLabel = shouldUseRolePageForInput ? rolePageInputConfig.label : userInputConfig.label;
     const links = [
       { href: 'index.html', page: 'home', label: 'ホーム' },
       { href: 'games.html', page: 'games', label: '試合' },
