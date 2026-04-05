@@ -639,7 +639,10 @@
       { href: 'games.html', page: 'games', label: '試合' },
       { href: inputHref, page: inputPage, label: inputLabel },
     ];
-    links.push({ href: 'condition-check.html', page: 'condition', label: '体調' });
+    const conditionLink = ['coach', 'manager'].includes(user.role)
+      ? { href: 'coach-condition.html', page: 'coach-condition', label: '体調' }
+      : { href: 'condition-check.html', page: 'condition', label: '体調' };
+    links.push(conditionLink);
     links.push({ href: 'prepare.html', page: 'prepare', label: '試合準備' });
 
     if (isPlayerPage && user.role !== 'player') {
@@ -4241,7 +4244,7 @@
       window.location.href = 'login.html';
       return;
     }
-    if (user.role !== 'coach') {
+    if (!['coach', 'manager'].includes(user.role)) {
       window.location.href = 'index.html';
       return;
     }
@@ -4259,7 +4262,7 @@
     const selectedDate = state.coachConditionSelectedDate || new Date().toISOString().slice(0, 10);
     root.innerHTML = `
       <section class="card role-hero">
-        <div class="hero-kicker">監督専用</div>
+        <div class="hero-kicker">${escapeHtml(`${getRoleLabel(user.role)}専用`)}</div>
         <h2>チーム体調一覧</h2>
         <p class="small">日付ごとの体調状況を一覧で確認し、選手詳細から履歴や体重推移まで追えます。</p>
       </section>

@@ -1576,7 +1576,7 @@ app.get('/api/condition-records', requireRole(['player']), async (req, res) => {
   return res.status(200).json({ records });
 });
 
-app.get('/api/team-condition-records', requireRole(['coach']), async (req, res) => {
+app.get('/api/team-condition-records', requireRole(['coach', 'manager']), async (req, res) => {
   const [players, records] = await Promise.all([
     listUsers(),
     listConditionRecords(),
@@ -1850,7 +1850,7 @@ app.use((req, res, next) => {
     '/manager.html': ['manager'],
     '/prepare.html': ['manager'],
     '/coach.html': ['coach'],
-    '/coach-condition.html': ['coach'],
+    '/coach-condition.html': ['coach', 'manager'],
     '/player-detail.html': ['coach'],
   };
   const allowedRoles = roleProtectedPages[req.path];
