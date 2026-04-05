@@ -1563,3 +1563,44 @@ button,
 .prepare-add-row .button {
   min-height: 48px;
 }
+
+.condition-page {
+  display: grid;
+  gap: 12px;
+}
+
+.condition-player-card h3 {
+  margin: 0 0 10px;
+}
+
+.condition-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.condition-input-grid {
+  display: grid;
+  gap: 8px;
+}
+
+.condition-chart-wrap {
+  margin-top: 12px;
+  height: 190px;
+}
+
+.weight-diff-plus {
+  color: #dc2626;
+  font-weight: 700;
+}
+
+.weight-diff-minus {
+  color: #2563eb;
+  font-weight: 700;
+}
+
+.weight-diff-neutral {
+  color: #6b7280;
+  font-weight: 700;
+}

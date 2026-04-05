@@ -47,6 +47,9 @@
     managerChecklistItems: [],
     prepareChecklistItems: [],
     playerSummaryDetail: null,
+    playerWeightsHistory: {},
+    playerCondition: {},
+    conditionCharts: {},
   };
 
   const big3Fields = [
@@ -133,6 +136,8 @@
 
   const managerChecklistStorageKey = 'baseball-manager-checklist-v1';
   const prepareChecklistStorageKey = 'checklist';
+  const playerWeightsHistoryStorageKey = 'playerWeightsHistory';
+  const playerConditionStorageKey = 'playerCondition';
   const defaultPrepareChecklistItems = [
     '試合球',
     'ノック・キャッチボール球',
@@ -619,7 +624,7 @@
     if (!nav || !user) return;
     const current = document.body.dataset.page;
     const rolePage = document.body.dataset.rolePage;
-    const isPlayerPage = rolePage === 'player' || ['player', 'diary', 'condition-check'].includes(current);
+    const isPlayerPage = rolePage === 'player' || ['player', 'diary'].includes(current);
     const defaultInputHref = user.role === 'coach' ? 'coach.html' : 'condition.html';
     const defaultInputPage = user.role === 'coach' ? 'coach' : 'condition';
     const inputHref = rolePage && ['coach', 'manager', 'player'].includes(rolePage)
@@ -634,16 +639,8 @@
       { href: 'games.html', page: 'games', label: '試合' },
       { href: inputHref, page: inputPage, label: inputLabel },
     ];
-    if (user.role === 'manager') {
-      links.push({ href: 'prepare.html', page: 'prepare', label: '試合準備' });
-    }
-    if (user.role === 'player') {
-      links.push({ href: 'diary.html', page: 'diary', label: '野球日誌' });
-      links.push({ href: 'condition-check.html', page: 'condition-check', label: '体調' });
-    }
-    if (user.role === 'coach') {
-      links.push({ href: 'coach-condition.html', page: 'coach-condition', label: '体調' });
-    }
+    links.push({ href: 'condition-check.html', page: 'condition', label: '体調' });
+    links.push({ href: 'prepare.html', page: 'prepare', label: '試合準備' });
 
     if (isPlayerPage && user.role !== 'player') {
       window.location.href = 'index.html';
@@ -742,6 +739,199 @@
 
   function showPage(pageId) {
     if (pageId === 'prepare') loadChecklist();
+    if (pageId === 'condition') {
+      loadWeights();
+    }
+  }
+
+  function getTodayIsoDate() {
+    return new Date().toISOString().slice(0, 10);
+  }
+
+  function loadConditionStorage() {
+    try {
+      state.playerWeightsHistory = JSON.parse(window.localStorage.getItem(playerWeightsHistoryStorageKey) || '{}');
+    } catch (error) {
+      state.playerWeightsHistory = {};
+    }
+    try {
+      state.playerCondition = JSON.parse(window.localStorage.getItem(playerConditionStorageKey) || '{}');
+    } catch (error) {
+      state.playerCondition = {};
+    }
+  }
+
+  function saveConditionStorage() {
+    window.localStorage.setItem(playerWeightsHistoryStorageKey, JSON.stringify(state.playerWeightsHistory));
+    window.localStorage.setItem(playerConditionStorageKey, JSON.stringify(state.playerCondition));
+  }
+
+  function getConditionPlayers() {
+    const user = state.user || {};
+    const allPlayers = (state.players || []).map((player) => player.name).filter(Boolean);
+    if (user.role === 'player') {
+      const ownName = String(user.playerName || user.name || '').trim();
+      if (!ownName) return [];
+      return [ownName];
+    }
+    return Array.from(new Set(allPlayers));
+  }
+
+  function getLatestWeight(playerName) {
+    const history = Array.isArray(state.playerWeightsHistory[playerName]) ? state.playerWeightsHistory[playerName] : [];
+    if (!history.length) return null;
+    return [...history].sort((a, b) => String(a.date).localeCompare(String(b.date))).at(-1) || null;
+  }
+
+  function calculateDiff(playerName) {
+    const history = Array.isArray(state.playerWeightsHistory[playerName]) ? state.playerWeightsHistory[playerName] : [];
+    const sorted = [...history].sort((a, b) => String(a.date).localeCompare(String(b.date)));
+    if (sorted.length < 2) return { value: null, label: '—', className: 'weight-diff-neutral' };
+    const today = Number(sorted[sorted.length - 1].weight);
+    const prev = Number(sorted[sorted.length - 2].weight);
+    const diff = today - prev;
+    if (diff > 0) return { value: diff, label: `+${diff.toFixed(1).replace(/\.0$/, '')}kg`, className: 'weight-diff-plus' };
+    if (diff < 0) return { value: diff, label: `${diff.toFixed(1).replace(/\.0$/, '')}kg`, className: 'weight-diff-minus' };
+    return { value: 0, label: '±0kg', className: 'weight-diff-neutral' };
+  }
+
+  function renderChart(playerName) {
+    const canvas = document.querySelector(`[data-condition-chart="${CSS.escape(playerName)}"]`);
+    if (!canvas) return;
+    if (state.conditionCharts[playerName]) {
+      state.conditionCharts[playerName].destroy();
+      delete state.conditionCharts[playerName];
+    }
+    if (typeof window.Chart === 'undefined') return;
+    const history = Array.isArray(state.playerWeightsHistory[playerName]) ? state.playerWeightsHistory[playerName] : [];
+    const sorted = [...history].sort((a, b) => String(a.date).localeCompare(String(b.date)));
+    if (!sorted.length) return;
+    state.conditionCharts[playerName] = new window.Chart(canvas, {
+      type: 'line',
+      data: {
+        labels: sorted.map((entry) => entry.date),
+        datasets: [{
+          label: '体重(kg)',
+          data: sorted.map((entry) => Number(entry.weight)),
+          borderColor: '#3b82f6',
+          backgroundColor: 'rgba(59,130,246,0.2)',
+          pointRadius: 3,
+          tension: 0.2,
+        }],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+          y: {
+            beginAtZero: false,
+          },
+        },
+        plugins: {
+          legend: { display: false },
+        },
+      },
+    });
+  }
+
+  async function loadWeights() {
+    const root = qs('conditionRoot');
+    if (!root) return;
+    if (!state.user) {
+      state.user = await fetchCurrentUser();
+    }
+    if (!state.players.length) {
+      try {
+        const payload = await api('/api/players');
+        state.players = payload.players || [];
+      } catch (error) {
+        state.players = [];
+      }
+    }
+    loadConditionStorage();
+    const user = state.user;
+    if (!user) return;
+    const canEditCondition = user.role === 'player';
+    const canEditWeight = user.role === 'player' || user.role === 'manager';
+    const players = getConditionPlayers();
+    root.innerHTML = `
+      <section id="condition" class="condition-page">
+        <div class="card role-hero">
+          <div class="hero-kicker">体調管理</div>
+          <h2>体調 + 体重</h2>
+          <p class="small">体重履歴は日付単位で保存され、同日入力は上書きされます。</p>
+        </div>
+        ${players.length === 0 ? '<section class="card"><p class="small">表示できる選手データがありません。</p></section>' : players.map((playerName) => {
+          const latestWeight = getLatestWeight(playerName);
+          const diff = calculateDiff(playerName);
+          const selectedCondition = state.playerCondition[playerName] || '普通';
+          return `
+            <article class="card condition-player-card">
+              <h3>${escapeHtml(playerName)}</h3>
+              <div class="condition-meta-grid">
+                <div><span class="small">体調</span><div>${escapeHtml(state.playerCondition[playerName] || '未入力')}</div></div>
+                <div><span class="small">最新体重</span><div>${latestWeight ? `${escapeHtml(String(latestWeight.weight))}kg` : '—'}</div></div>
+                <div><span class="small">前日比</span><div class="${diff.className}">${escapeHtml(diff.label)}</div></div>
+              </div>
+              <div class="condition-input-grid">
+                ${canEditCondition ? `
+                  <div class="form-row">
+                    <label for="conditionStatus-${escapeHtml(playerName)}">体調入力</label>
+                    <select id="conditionStatus-${escapeHtml(playerName)}" data-condition-input="${escapeHtml(playerName)}">
+                      ${['良い', '普通', '悪い'].map((status) => `<option value="${status}" ${selectedCondition === status ? 'selected' : ''}>${status}</option>`).join('')}
+                    </select>
+                  </div>
+                ` : ''}
+                ${canEditWeight ? `
+                  <div class="form-row">
+                    <label for="weightInput-${escapeHtml(playerName)}">体重入力(kg)</label>
+                    <input id="weightInput-${escapeHtml(playerName)}" type="number" inputmode="decimal" min="0" step="0.1" data-weight-input="${escapeHtml(playerName)}" value="${latestWeight ? escapeHtml(String(latestWeight.weight)) : ''}" />
+                  </div>
+                ` : ''}
+              </div>
+              ${(canEditCondition || canEditWeight) ? `<div class="actions single-action"><button type="button" class="button button-primary" data-save-condition-player="${escapeHtml(playerName)}">保存</button></div>` : ''}
+              <div class="condition-chart-wrap">
+                <canvas data-condition-chart="${escapeHtml(playerName)}" aria-label="${escapeHtml(playerName)}の体重推移"></canvas>
+              </div>
+            </article>
+          `;
+        }).join('')}
+      </section>
+    `;
+
+    root.querySelectorAll('[data-save-condition-player]').forEach((button) => {
+      button.addEventListener('click', async () => {
+        const playerName = button.dataset.saveConditionPlayer || '';
+        if (canEditWeight) {
+          saveWeight(playerName);
+        }
+        if (canEditCondition) {
+          saveCondition(playerName);
+        }
+        saveConditionStorage();
+        await loadWeights();
+      });
+    });
+
+    players.forEach((playerName) => renderChart(playerName));
+  }
+
+  function saveWeight(playerName) {
+    const input = document.querySelector(`[data-weight-input="${CSS.escape(playerName)}"]`);
+    if (!input) return;
+    const value = Number(input.value);
+    if (!Number.isFinite(value) || value <= 0) return;
+    const today = getTodayIsoDate();
+    const currentHistory = Array.isArray(state.playerWeightsHistory[playerName]) ? state.playerWeightsHistory[playerName] : [];
+    const nextHistory = currentHistory.filter((entry) => entry.date !== today);
+    nextHistory.push({ date: today, weight: value });
+    state.playerWeightsHistory[playerName] = nextHistory.sort((a, b) => String(a.date).localeCompare(String(b.date)));
+  }
+
+  function saveCondition(playerName) {
+    const select = document.querySelector(`[data-condition-input="${CSS.escape(playerName)}"]`);
+    if (!select) return;
+    state.playerCondition[playerName] = select.value;
   }
 
   function renderPrepare() {
@@ -771,6 +961,12 @@
     });
     qs('prepareResetButton')?.addEventListener('click', resetChecklist);
     showPage('prepare');
+  }
+
+  async function renderConditionPage() {
+    const root = qs('conditionRoot');
+    if (!root) return;
+    showPage('condition');
   }
 
   window.loadChecklist = loadChecklist;
@@ -4398,5 +4594,6 @@
     await renderPlayerDetail();
     await renderMeetingHistory();
     await renderPrepare();
+    await renderConditionPage();
   });
 })();
