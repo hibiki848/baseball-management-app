@@ -1455,7 +1455,7 @@
         <div class="section-heading-row">
           <div>
             <h2>選手別 個人成績サマリー</h2>
-            <div class="small">監督ホームでは選手ごとの主要指標を一覧で確認できます。</div>
+            <div class="small">指導者ホームでは選手ごとの主要指標を一覧で確認できます。</div>
           </div>
         </div>
         ${!playerSummaries.length ? '<div class="small">表示できる選手データがありません。</div>' : `
@@ -1554,7 +1554,7 @@
 
   function buildRoleHero(user) {
     const actionLink = ['manager', 'player'].includes(user.role) ? 'condition.html' : AppRoles.getRolePage(user.role);
-    const actionLabel = user.role === 'manager' ? '入力専用ページ' : user.role === 'player' ? '自分の入力ページ' : '監督ビュー';
+    const actionLabel = user.role === 'manager' ? '入力専用ページ' : user.role === 'player' ? '自分の入力ページ' : '指導者ビュー';
     return `
       <section class="card role-hero">
         <div class="hero-kicker">${escapeHtml(getRoleLabel(user.role))}</div>
@@ -2598,7 +2598,7 @@
       root.innerHTML = `
         <section class="card">
           <h2>入力権限がありません</h2>
-          <p class="small">監督アカウントでは成績入力を行えません。ホームまたは確認画面から集計結果をご確認ください。</p>
+          <p class="small">指導者アカウントでは成績入力を行えません。ホームまたは確認画面から集計結果をご確認ください。</p>
           <div class="actions single-action">
             <a class="button button-secondary" href="index.html">ホームへ戻る</a>
           </div>
@@ -2720,10 +2720,10 @@
             </div>
             <div class="diary-feedback-grid">
               <div class="diary-feedback-block">
-                <div class="stat-label">監督コメント</div>
+                <div class="stat-label">指導者コメント</div>
                 ${(note.coachComments || []).length
                   ? (note.coachComments || []).map((comment) => `
-                      <div class="meta">${escapeHtml(comment.author || '監督')}: ${escapeHtml(comment.body || '')}</div>
+                      <div class="meta">${escapeHtml(comment.author || '指導者')}: ${escapeHtml(comment.body || '')}</div>
                       ${comment.repliedAt ? `<div class="meta">返信: ${escapeHtml(String(comment.repliedAt).replace('T', ' ').slice(0, 16))}</div>` : ''}
                     `).join('')
                   : '<div class="small">まだコメントはありません。</div>'}
@@ -2731,7 +2731,7 @@
               <div class="diary-feedback-block">
                 <div class="stat-label">スタンプ</div>
                 ${(note.coachStamps || []).length
-                  ? `<div class="stamp-list">${(note.coachStamps || []).map((stamp) => `<span class="stamp-chip" title="${escapeHtml(stamp.repliedAt ? `${stamp.author || '監督'} ${String(stamp.repliedAt).replace('T', ' ').slice(0, 16)}` : (stamp.author || '監督'))}">${escapeHtml(stamp.label || stamp)}</span>`).join('')}</div>`
+                  ? `<div class="stamp-list">${(note.coachStamps || []).map((stamp) => `<span class="stamp-chip" title="${escapeHtml(stamp.repliedAt ? `${stamp.author || '指導者'} ${String(stamp.repliedAt).replace('T', ' ').slice(0, 16)}` : (stamp.author || '指導者'))}">${escapeHtml(stamp.label || stamp)}</span>`).join('')}</div>`
                   : '<div class="small">まだスタンプはありません。</div>'}
               </div>
             </div>
@@ -2753,7 +2753,7 @@
       root.innerHTML = `
         <section class="card">
           <h2>野球日誌は選手専用です</h2>
-          <p class="small">監督・マネージャーでは利用できません。ホームに戻って他の機能をご利用ください。</p>
+          <p class="small">指導者・マネージャーでは利用できません。ホームに戻って他の機能をご利用ください。</p>
           <div class="actions single-action">
             <a class="button button-secondary" href="index.html">ホームへ戻る</a>
           </div>
@@ -2979,7 +2979,7 @@
     const commentMarkup = (note.coachComments || []).length
       ? (note.coachComments || []).map((comment) => `
           <div class="diary-detail-comment">
-            <strong>${escapeHtml(comment.author || '監督')}</strong>
+            <strong>${escapeHtml(comment.author || '指導者')}</strong>
             <div>${escapeHtml(comment.body || '')}</div>
             <div class="meta">${escapeHtml(String(comment.repliedAt || '').replace('T', ' ').slice(0, 16) || '返信日時未設定')}</div>
           </div>
@@ -2988,7 +2988,7 @@
 
     const stampMarkup = (note.coachStamps || []).length
       ? `<div class="stamp-list">${(note.coachStamps || []).map((stamp) => `
-          <span class="stamp-chip" title="${escapeHtml(stamp.author || '監督')}">${escapeHtml(stamp.label || stamp)}</span>
+          <span class="stamp-chip" title="${escapeHtml(stamp.author || '指導者')}">${escapeHtml(stamp.label || stamp)}</span>
         `).join('')}</div>`
       : '<div class="small">まだスタンプはありません。</div>';
 
@@ -3011,7 +3011,7 @@
     return `
       <form class="coach-diary-reply-form" data-coach-diary-reply-form="${note.id}">
         <div class="form-row">
-          <label for="coachDiaryReplyMessage${suffix}">監督からの返信</label>
+          <label for="coachDiaryReplyMessage${suffix}">指導者からの返信</label>
           <textarea id="coachDiaryReplyMessage${suffix}" name="message" maxlength="500" placeholder="気づきや励ましのコメントを入力"></textarea>
         </div>
         <div class="form-row">
@@ -3296,9 +3296,9 @@
     const notes = getFilteredCoachDiaryNotes();
     root.innerHTML = `
       <section class="card role-hero">
-        <div class="hero-kicker">監督専用</div>
+        <div class="hero-kicker">指導者専用</div>
         <h2>チーム野球日誌カレンダー</h2>
-        <p class="small">監督が日ごとの投稿状況を把握しやすいよう、投稿件数をカレンダーで見て、その日の詳細をカードでまとめて確認できる構成にしています。</p>
+        <p class="small">指導者が日ごとの投稿状況を把握しやすいよう、投稿件数をカレンダーで見て、その日の詳細をカードでまとめて確認できる構成にしています。</p>
       </section>
       ${buildCoachDiaryPanel(notes)}
     `;
@@ -4420,8 +4420,8 @@
     if (user.role !== 'coach') {
       root.innerHTML = `
         <section class="card">
-          <h2>監督専用ページです</h2>
-          <p class="small">このページは監督ロールの個人成績サマリー詳細確認用です。</p>
+          <h2>指導者専用ページです</h2>
+          <p class="small">このページは指導者ロールの個人成績サマリー詳細確認用です。</p>
         </section>
       `;
       return;
@@ -4446,7 +4446,7 @@
       const payload = await refreshPlayerSummaryDetail(playerId);
       root.innerHTML = `
         <section class="card role-hero">
-          <div class="hero-kicker">監督専用</div>
+          <div class="hero-kicker">指導者専用</div>
           <h2>${escapeHtml(payload.player.name)} の個人成績サマリー</h2>
           <p class="small">${escapeHtml(buildPlayerMetaLine(payload.player))}</p>
           <div class="actions">

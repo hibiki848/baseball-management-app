@@ -6,7 +6,7 @@
   });
 
   const ROLE_OPTIONS = Object.freeze([
-    Object.freeze({ value: ROLE_VALUES.coach, label: '監督' }),
+    Object.freeze({ value: ROLE_VALUES.coach, label: '指導者' }),
     Object.freeze({ value: ROLE_VALUES.manager, label: 'マネージャー' }),
     Object.freeze({ value: ROLE_VALUES.player, label: '選手' }),
   ]);

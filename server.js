@@ -1514,7 +1514,7 @@ app.post('/api/coach/diary-notes/:id/replies', requireRole(['coach']), async (re
       id: `comment-${Date.now()}`,
       noteId,
       playerId: existingNote.userId,
-      author: req.session.user.name || '監督',
+      author: req.session.user.name || '指導者',
       body: validation.values.message,
       repliedAt,
     });
@@ -1526,7 +1526,7 @@ app.post('/api/coach/diary-notes/:id/replies', requireRole(['coach']), async (re
       noteId,
       playerId: existingNote.userId,
       label: validation.values.stamp,
-      author: req.session.user.name || '監督',
+      author: req.session.user.name || '指導者',
       repliedAt,
     });
   }
