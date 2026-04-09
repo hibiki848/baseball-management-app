@@ -646,7 +646,9 @@
       ? { href: 'coach-condition.html', page: 'coach-condition', label: '体調' }
       : { href: 'condition-check.html', page: 'condition', label: '体調' };
     links.push(conditionLink);
-    links.push({ href: 'prepare.html', page: 'prepare', label: '試合準備' });
+    if (user.role !== 'coach') {
+      links.push({ href: 'prepare.html', page: 'prepare', label: '試合準備' });
+    }
 
     if (isPlayerPage && user.role !== 'player') {
       window.location.href = 'index.html';
