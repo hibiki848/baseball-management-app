@@ -5,7 +5,7 @@ UPDATE users
 SET role = CASE role
   WHEN 'admin' THEN 'coach'
   WHEN 'director' THEN 'coach'
-  WHEN '監督' THEN 'coach'
+  WHEN '指導者' THEN 'coach'
   WHEN '選手' THEN 'player'
   WHEN 'マネージャー' THEN 'manager'
   ELSE role
