@@ -649,7 +649,7 @@
       ? { href: 'coach-condition.html', page: 'coach-condition', label: '体調' }
       : { href: 'condition-check.html', page: 'condition', label: '体調' };
     links.push(conditionLink);
-    if (user.role !== 'coach') {
+    if (user?.role === 'manager') {
       links.push({ href: 'prepare.html', page: 'prepare', label: '試合準備' });
     }
 
