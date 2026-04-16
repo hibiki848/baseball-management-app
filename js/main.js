@@ -416,12 +416,13 @@
   }
 
   function normalizeDiaryTags(value) {
-    const source = Array.isArray(value)
-      ? value
-      : String(value || '')
-          .split(/[,\n、]/)
-          .map((item) => item.trim());
-    return [...new Set(source.map((item) => String(item || '').trim()).filter(Boolean))];
+    const source = Array.isArray(value) ? value : [value];
+    return [...new Set(
+      source
+        .flatMap((item) => String(item || '').split(/[,\n、・]/))
+        .map((item) => String(item || '').trim())
+        .filter(Boolean),
+    )];
   }
 
   function getDiaryTagInputValue(tags) {
@@ -1985,7 +1986,7 @@
       return;
     }
     const payload = await api('/api/diary-notes');
-    state.diaryNotes = payload.notes || [];
+    state.diaryNotes = (payload.notes || []).map((note) => ({ ...note, tags: normalizeDiaryTags(note.tags) }));
   }
 
   async function refreshCoachDiaryNotes() {
@@ -1995,7 +1996,7 @@
       return;
     }
     const payload = await api('/api/coach/diary-notes');
-    state.coachDiaryNotes = payload.notes || [];
+    state.coachDiaryNotes = (payload.notes || []).map((note) => ({ ...note, tags: normalizeDiaryTags(note.tags) }));
     state.coachDiaryStampOptions = payload.stampOptions || defaultCoachDiaryStampOptions;
   }
 
@@ -2816,7 +2817,7 @@
           <div class="form-row">
             <label for="diaryTags">タグ</label>
             <input id="diaryTags" name="tags" type="text" placeholder="例: 打撃, 守備, 練習試合" value="${escapeHtml(getDiaryTagInputValue((editingNote && editingNote.tags) || []))}" />
-            <div class="small">カンマ区切りで複数タグを設定できます。</div>
+            <div class="small">カンマ（,）・読点（、）・中点（・）区切りで複数タグを設定できます。</div>
           </div>
           <div class="form-row">
             <label for="diaryVideos">練習動画アップロード（50MBまで、複数可）</label>

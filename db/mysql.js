@@ -71,6 +71,16 @@ function parseJson(value, fallback) {
   }
 }
 
+function normalizeDiaryTags(value) {
+  const source = Array.isArray(value) ? value : [value];
+  return [...new Set(
+    source
+      .flatMap((item) => String(item || '').split(/[,\n、・]/))
+      .map((item) => String(item || '').trim())
+      .filter(Boolean),
+  )];
+}
+
 function normalizeProfile(value) {
   const parsed = parseJson(value, {});
   if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') return {};
@@ -234,7 +244,7 @@ function mapDiaryNote(row) {
     userId: Number(row.user_id),
     entryDate: normalizeDate(row.entry_date),
     body: row.body || '',
-    tags: parseJson(row.tags_json, []),
+    tags: normalizeDiaryTags(parseJson(row.tags_json, [])),
     coachComments: parseJson(row.coach_comments_json, []),
     coachStamps: parseJson(row.coach_stamps_json, []),
     createdBy: row.created_by == null ? null : Number(row.created_by),
@@ -719,6 +729,7 @@ async function findDiaryNoteById(id) {
 }
 
 async function createDiaryNote({ userId, entryDate, body, tags, coachComments, coachStamps, createdBy, updatedBy }) {
+  const normalizedTags = normalizeDiaryTags(tags).slice(0, 12);
   const [result] = await pool.query(
     `INSERT INTO baseball_diary_notes (
       user_id,
@@ -734,7 +745,7 @@ async function createDiaryNote({ userId, entryDate, body, tags, coachComments, c
       userId,
       entryDate,
       body,
-      JSON.stringify(tags || []),
+      JSON.stringify(normalizedTags),
       JSON.stringify(coachComments || []),
       JSON.stringify(coachStamps || []),
       createdBy,
@@ -745,6 +756,7 @@ async function createDiaryNote({ userId, entryDate, body, tags, coachComments, c
 }
 
 async function updateDiaryNote(id, { entryDate, body, tags, coachComments, coachStamps, updatedBy }) {
+  const normalizedTags = normalizeDiaryTags(tags).slice(0, 12);
   await pool.query(
     `UPDATE baseball_diary_notes
      SET entry_date = ?,
@@ -758,7 +770,7 @@ async function updateDiaryNote(id, { entryDate, body, tags, coachComments, coach
     [
       entryDate,
       body,
-      JSON.stringify(tags || []),
+      JSON.stringify(normalizedTags),
       JSON.stringify(coachComments || []),
       JSON.stringify(coachStamps || []),
       updatedBy,

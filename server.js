@@ -162,12 +162,9 @@ function parseNullableNumber(value) {
 }
 
 function normalizeDiaryTags(value) {
-  const rawValues = Array.isArray(value)
-    ? value
-    : String(value || '')
-        .split(/[,\n、]/)
-        .map((item) => item.trim());
-  return [...new Set(rawValues.map((item) => String(item || '').trim()).filter(Boolean))].slice(0, 12);
+  const rawValues = Array.isArray(value) ? value : [value];
+  const normalizedValues = rawValues.flatMap((item) => String(item || '').split(/[,\n、・]/));
+  return [...new Set(normalizedValues.map((item) => String(item || '').trim()).filter(Boolean))].slice(0, 12);
 }
 
 function isValidIsoDate(value) {
