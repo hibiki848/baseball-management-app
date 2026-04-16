@@ -35,7 +35,6 @@
     coachDiarySelectedTag: '',
     coachDiarySelectedDate: '',
     coachDiaryCalendarMonth: new Date().toISOString().slice(0, 7),
-    coachDiarySelectedNoteId: null,
     coachDiaryStampOptions: ['いいね', 'ナイス', 'おつかれ', 'ファイト', 'すごい'],
     coachDiaryReplyDraft: '',
     coachDiarySelectedStamp: '',
@@ -1975,13 +1974,6 @@
     const payload = await api('/api/coach/diary-notes');
     state.coachDiaryNotes = payload.notes || [];
     state.coachDiaryStampOptions = payload.stampOptions || defaultCoachDiaryStampOptions;
-
-    if (
-      state.coachDiarySelectedNoteId
-      && !state.coachDiaryNotes.some((note) => Number(note.id) === Number(state.coachDiarySelectedNoteId))
-    ) {
-      state.coachDiarySelectedNoteId = null;
-    }
   }
 
   function normalizeYearMonth(value) {
@@ -3015,16 +3007,6 @@
         <option value="${escapeHtml(tag)}" ${state.coachDiarySelectedTag === tag ? 'selected' : ''}>${escapeHtml(tag)}</option>
       `))
       .join('');
-    const tagChips = availableTags.length
-      ? availableTags.map((tag) => `
-          <button
-            type="button"
-            class="tag-chip coach-diary-tag-filter-chip ${state.coachDiarySelectedTag === tag ? 'is-selected' : ''}"
-            data-coach-diary-tag-chip="${escapeHtml(tag)}"
-          >#${escapeHtml(tag)}</button>
-        `).join('')
-      : '<span class="small">登録済みタグはまだありません。</span>';
-
     return `
       <section class="card">
         <div class="coach-condition-section-header">
@@ -3051,9 +3033,6 @@
             <label for="coachDiaryTagFilter">タグ</label>
             <select id="coachDiaryTagFilter">${tagOptions}</select>
           </div>
-        </div>
-        <div class="coach-diary-tag-filter-list" aria-label="タグから絞り込み">
-          ${tagChips}
         </div>
       </section>
     `;
@@ -3276,10 +3255,10 @@
 
     const resetCoachDiaryDateToLatest = () => {
       const filteredNotes = getFilteredCoachDiaryNotes();
-      const latestNote = [...filteredNotes].sort((left, right) => compareDiaryNotes(left, right, 'desc'))[0] || null;
+      const latestNote = [...filteredNotes]
+        .sort((left, right) => compareDiaryNotes(left, right, 'desc'))[0] || null;
       state.coachDiarySelectedDate = latestNote ? latestNote.entryDate : new Date().toISOString().slice(0, 10);
       state.coachDiaryCalendarMonth = state.coachDiarySelectedDate.slice(0, 7);
-      state.coachDiarySelectedNoteId = latestNote ? latestNote.id : null;
     };
 
     const applyCoachDiaryFiltersAndRender = () => {
@@ -3302,14 +3281,6 @@
       applyCoachDiaryFiltersAndRender();
     });
 
-    root.querySelectorAll('[data-coach-diary-tag-chip]').forEach((button) => {
-      button.addEventListener('click', () => {
-        const nextTag = String(button.dataset.coachDiaryTagChip || '');
-        state.coachDiarySelectedTag = state.coachDiarySelectedTag === nextTag ? '' : nextTag;
-        applyCoachDiaryFiltersAndRender();
-      });
-    });
-
     root.querySelectorAll('[data-coach-diary-calendar-nav]').forEach((button) => {
       button.addEventListener('click', () => {
         const [yearValue, monthValue] = String(state.coachDiaryCalendarMonth || new Date().toISOString().slice(0, 7)).split('-');
@@ -3321,7 +3292,6 @@
         state.coachDiarySelectedDate = monthNotes[0]
           ? monthNotes[0].entryDate
           : `${state.coachDiaryCalendarMonth}-01`;
-        state.coachDiarySelectedNoteId = monthNotes[0] ? monthNotes[0].id : null;
         renderCoachDiary({ reload: false });
       });
     });
@@ -3330,8 +3300,6 @@
       button.addEventListener('click', () => {
         state.coachDiarySelectedDate = button.dataset.coachDiaryDate || '';
         state.coachDiaryCalendarMonth = state.coachDiarySelectedDate.slice(0, 7) || state.coachDiaryCalendarMonth;
-        const selectedDateNotes = getFilteredCoachDiaryNotes().filter((note) => note.entryDate === state.coachDiarySelectedDate);
-        state.coachDiarySelectedNoteId = selectedDateNotes[0] ? selectedDateNotes[0].id : null;
         renderCoachDiary({ reload: false });
       });
     });
