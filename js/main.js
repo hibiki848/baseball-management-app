@@ -1202,7 +1202,11 @@
     `;
   }
 
-  function buildBig3RankingCard(big3) {
+  function buildBig3RankingCard(big3, options = {}) {
+    const limit = Number(options.limit);
+    const hasLimit = Number.isFinite(limit) && limit > 0;
+    const showDetailLink = Boolean(options.showDetailLink);
+    const detailHref = options.detailHref || 'coach-stats.html#big3-ranking';
     const tabs = [
       { key: 'benchPress', label: 'ベンチ' },
       { key: 'squat', label: 'スクワット' },
@@ -1211,7 +1215,7 @@
     ];
     const activeKey = big3 && big3.rankings && big3.rankings[state.activeBig3Tab] ? state.activeBig3Tab : 'benchPress';
     const activeRanking = (big3 && big3.rankings && big3.rankings[activeKey]) || { label: 'ベンチプレス', entries: [] };
-    const visibleEntries = activeRanking.entries.slice(0, Number(big3 && big3.leaderboardLimit) || 5);
+    const visibleEntries = activeRanking.entries.slice(0, hasLimit ? limit : (Number(big3 && big3.leaderboardLimit) || 5));
 
     return `
       <section class="card">
@@ -1236,6 +1240,19 @@
               <div class="big3-rank-weight">${escapeHtml(fmtKg(entry.weight))}</div>
             </article>
           `).join('')}
+        </div>
+        ${showDetailLink ? `<div class="actions single-action"><a class="button button-secondary" href="${detailHref}">詳細を見る</a></div>` : ''}
+      </section>
+    `;
+  }
+
+  function buildCoachHomeEntryCard(title, description, href, buttonLabel = '詳細を見る') {
+    return `
+      <section class="card">
+        <h2>${escapeHtml(title)}</h2>
+        <p class="small">${escapeHtml(description)}</p>
+        <div class="actions single-action">
+          <a class="button button-secondary" href="${href}">${escapeHtml(buttonLabel)}</a>
         </div>
       </section>
     `;
@@ -1517,16 +1534,22 @@
     `;
   }
 
-  function buildRankingCard(rankings) {
+  function buildRankingCard(rankings, options = {}) {
+    const limit = Number(options.limit);
+    const hasLimit = Number.isFinite(limit) && limit > 0;
+    const showDetailLink = Boolean(options.showDetailLink);
+    const detailHref = options.detailHref || 'coach-stats.html#player-ranking';
+    const visibleRankings = hasLimit ? rankings.slice(0, limit) : rankings;
     return `
       <section class="card">
         <h2>個人成績ランキング</h2>
-        ${rankings.length === 0 ? '<div class="small">ランキング対象データがありません。</div>' : rankings.map((player, index) => `
+        ${visibleRankings.length === 0 ? '<div class="small">ランキング対象データがありません。</div>' : visibleRankings.map((player, index) => `
           <div class="list-item">
             <strong>${index + 1}位 ${escapeHtml(player.name)}</strong>
             <div class="meta">OPS ${fmt3(player.ops)} / 打率 ${fmt3(player.battingAverage)} / 打点 ${player.runsBattedIn} / 奪三振 ${player.strikeouts} / 防御率 ${fmt3(player.era)}</div>
           </div>
         `).join('')}
+        ${showDetailLink ? `<div class="actions single-action"><a class="button button-secondary" href="${detailHref}">もっと見る</a></div>` : ''}
       </section>
     `;
   }
@@ -2066,21 +2089,38 @@
     if (!root) return;
     await refreshData();
     const { user, recentGame, teamSummary, personalSummary, rankings, playerSummaries, big3 } = state.dashboard;
-    const sections = [buildRoleHero(user)];
+    const sections = user.role === 'coach'
+      ? [buildCoachHomeEntryCard('チーム成績サマリー', 'ホームでは概要のみを表示しています。チーム全体の成績は詳細ページで確認してください。', 'coach-stats.html#team-summary', 'チーム全体の成績確認')]
+      : [buildRoleHero(user)];
+    if (user.role === 'coach') {
+      sections.push(buildRoleHero(user));
+    }
     if (user.role === 'player') {
       sections.push(buildPersonalGoalCard(user));
     }
-    sections.push(buildRecentGameCard(recentGame), buildBig3RankingCard(big3));
+    sections.push(buildRecentGameCard(recentGame));
     if (user.role === 'coach') {
-      sections.push(buildCoachPlayerSummaryCards(playerSummaries));
+      sections.push(
+        buildCoachHomeEntryCard('チーム全体の成績確認', '選手別の詳細データは専用ページで確認できます。', 'coach-stats.html#team-overview', '詳細を見る'),
+        buildCoachHomeEntryCard('個人成績サマリー', 'ホームでは個人成績の数値を表示しません。詳細ページから選手ごとの成績を確認してください。', 'coach-stats.html#personal-summary', '詳細を見る'),
+      );
     } else if (user.role !== 'manager') {
       sections.push(buildPersonalSummaryCard(personalSummary, user));
     }
-    sections.push(buildTeamSummaryCard(teamSummary));
-    if (user.role === 'manager' || user.role === 'coach') {
+    if (user.role !== 'coach') {
+      sections.push(buildTeamSummaryCard(teamSummary));
+    }
+    if (user.role === 'manager') {
       sections.push(buildPlayerSummaryTable(playerSummaries));
     }
-    sections.push(buildRankingCard(rankings));
+    if (user.role === 'coach') {
+      sections.push(
+        buildRankingCard(rankings, { limit: 3, showDetailLink: true, detailHref: 'coach-stats.html#player-ranking' }),
+        buildBig3RankingCard(big3, { limit: 3, showDetailLink: true, detailHref: 'coach-stats.html#big3-ranking' }),
+      );
+    } else {
+      sections.push(buildRankingCard(rankings), buildBig3RankingCard(big3));
+    }
     root.innerHTML = sections.join('');
     bindBig3Tabs();
     bindGroundFlyToggles(root);
@@ -4413,6 +4453,41 @@
     }
   }
 
+  async function renderCoachStatsDetail() {
+    const root = qs('coachStatsRoot');
+    if (!root) return;
+    const user = state.user || (await fetchCurrentUser());
+    if (!user) return;
+    if (user.role !== 'coach') {
+      root.innerHTML = `
+        <section class="card">
+          <h2>指導者専用ページです</h2>
+          <p class="small">このページは指導者ロールのホーム詳細確認用です。</p>
+        </section>
+      `;
+      return;
+    }
+
+    await refreshData();
+    const { teamSummary, rankings, playerSummaries, big3 } = state.dashboard;
+    root.innerHTML = `
+      <section class="card role-hero">
+        <div class="hero-kicker">指導者専用</div>
+        <h2>ホーム詳細</h2>
+        <p class="small">ホームで省略している成績の詳細を確認できます。</p>
+        <div class="actions single-action">
+          <a class="button button-secondary" href="index.html">ホームへ戻る</a>
+        </div>
+      </section>
+      <div id="team-summary">${buildTeamSummaryCard(teamSummary)}</div>
+      <div id="team-overview">${buildPlayerSummaryTable(playerSummaries)}</div>
+      <div id="personal-summary">${buildCoachPlayerSummaryCards(playerSummaries)}</div>
+      <div id="player-ranking">${buildRankingCard(rankings)}</div>
+      <div id="big3-ranking">${buildBig3RankingCard(big3)}</div>
+    `;
+    bindBig3Tabs();
+  }
+
   function bindLogin() {
     const loginForm = qs('loginForm');
     const registerForm = qs('registerForm');
@@ -4549,6 +4624,7 @@
     await renderConditionCheck();
     await renderCoachCondition();
     await renderPlayerDetail();
+    await renderCoachStatsDetail();
     await renderMeetingHistory();
     await renderPrepare();
     await renderConditionPage();
