@@ -983,6 +983,30 @@ button,
   min-width: 0;
 }
 
+.coach-diary-filter-grid {
+  align-items: end;
+}
+
+.coach-diary-tag-filter-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.coach-diary-tag-filter-chip {
+  border: 1px solid var(--border);
+  background: #fff;
+  color: var(--subtext);
+  cursor: pointer;
+}
+
+.coach-diary-tag-filter-chip.is-selected {
+  border-color: var(--primary);
+  background: var(--primary-light);
+  color: var(--primary);
+}
+
 .coach-diary-player-summary,
 .coach-diary-player-stats,
 .coach-diary-note-footer,
