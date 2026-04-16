@@ -1050,6 +1050,9 @@ button,
 .coach-diary-player-card:hover,
 .coach-diary-player-card:focus-visible,
 .coach-diary-player-card.is-selected,
+.coach-diary-day-card:hover,
+.coach-diary-day-card:focus-visible,
+.coach-diary-day-card.is-selected,
 .coach-diary-list-item.is-selected,
 .coach-diary-list-item:hover,
 .coach-diary-list-item:focus-visible {
@@ -1082,8 +1085,7 @@ button,
   gap: 14px;
 }
 
-.coach-diary-calendar-summary,
-.coach-diary-day-card-badges {
+.coach-diary-calendar-summary {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
@@ -1127,6 +1129,9 @@ button,
   gap: 8px;
   align-content: start;
   min-height: 174px;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
 }
 
 .coach-diary-day-card h3 {

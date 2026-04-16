@@ -36,8 +36,8 @@
     coachDiarySelectedDate: '',
     coachDiaryCalendarMonth: new Date().toISOString().slice(0, 7),
     coachDiaryStampOptions: ['いいね', 'ナイス', 'おつかれ', 'ファイト', 'すごい'],
-    coachDiaryReplyDraft: '',
-    coachDiarySelectedStamp: '',
+    coachDiaryReplyDrafts: {},
+    coachDiarySelectedStamps: {},
     coachDiaryModalNoteId: null,
     coachDiaryEscListenerBound: false,
     managerDailyLogs: [],
@@ -3015,18 +3015,20 @@
 
   function buildCoachDiaryReplyForm(note) {
     const suffix = `-${note.id}`;
+    const replyDraft = state.coachDiaryReplyDrafts[note.id] || '';
+    const selectedStamp = state.coachDiarySelectedStamps[note.id] || '';
     return `
       <form class="coach-diary-reply-form" data-coach-diary-reply-form="${note.id}">
         <div class="form-row">
           <label for="coachDiaryReplyMessage${suffix}">指導者からの返信</label>
-          <textarea id="coachDiaryReplyMessage${suffix}" name="message" maxlength="500" placeholder="気づきや励ましのコメントを入力"></textarea>
+          <textarea id="coachDiaryReplyMessage${suffix}" name="message" maxlength="500" placeholder="気づきや励ましのコメントを入力">${escapeHtml(replyDraft)}</textarea>
         </div>
         <div class="form-row">
           <label for="coachDiaryStamp${suffix}">スタンプ送信</label>
           <select id="coachDiaryStamp${suffix}" name="stamp">
             <option value="">選択してください</option>
             ${state.coachDiaryStampOptions.map((stamp) => `
-              <option value="${escapeHtml(stamp)}">${escapeHtml(stamp)}</option>
+              <option value="${escapeHtml(stamp)}" ${selectedStamp === stamp ? 'selected' : ''}>${escapeHtml(stamp)}</option>
             `).join('')}
           </select>
         </div>
@@ -3247,22 +3249,19 @@
           ${selectedDateNotes.map((note) => `
             <button
               type="button"
-              class="list-item coach-diary-day-card coach-diary-player-card ${selectedModalNote && Number(selectedModalNote.id) === Number(note.id) ? 'is-selected' : ''}"
+              class="list-item coach-diary-day-card ${selectedModalNote && Number(selectedModalNote.id) === Number(note.id) ? 'is-selected' : ''}"
               data-coach-diary-note-card="${note.id}"
+              aria-label="${escapeHtml(note.playerName || `選手#${note.playerId}`)}の日誌詳細を開く"
             >
               <div class="coach-diary-detail-head coach-diary-day-card-head">
                 <div>
                   <h3>${escapeHtml(note.playerName || `選手#${note.playerId}`)}</h3>
                   <div class="small">${escapeHtml(buildPlayerMetaLine(getCoachDiaryNotePlayerProfile(note)))}</div>
                 </div>
-                <div class="coach-diary-day-card-badges">
-                  <span class="condition-status-badge">${(note.tags || []).length ? `#タグ ${(note.tags || []).length}` : 'タグなし'}</span>
-                </div>
               </div>
               <p class="coach-diary-card-excerpt">${escapeHtml(formatDiaryExcerpt(note.body, 160) || '本文未入力')}</p>
               <div class="coach-diary-player-meta">
                 <span>${escapeHtml(formatDateTimeLabel(note.updatedAt || note.createdAt || ''))}</span>
-                <span>コメント ${(note.coachComments || []).length}件 / スタンプ ${(note.coachStamps || []).length}件</span>
               </div>
             </button>
           `).join('')}
@@ -3320,16 +3319,22 @@
       ${buildCoachDiaryPanel(notes)}
     `;
 
-    const resetCoachDiaryDateToLatest = () => {
-      const filteredNotes = getFilteredCoachDiaryNotes();
+    const getLatestCoachDiaryDate = (filteredNotes) => {
       const latestNote = [...filteredNotes]
         .sort((left, right) => compareDiaryNotes(left, right, 'desc'))[0] || null;
-      state.coachDiarySelectedDate = latestNote ? latestNote.entryDate : new Date().toISOString().slice(0, 10);
-      state.coachDiaryCalendarMonth = state.coachDiarySelectedDate.slice(0, 7);
+      return latestNote ? latestNote.entryDate : new Date().toISOString().slice(0, 10);
     };
 
     const applyCoachDiaryFiltersAndRender = () => {
-      resetCoachDiaryDateToLatest();
+      const filteredNotes = getFilteredCoachDiaryNotes();
+      const selectedDate = state.coachDiarySelectedDate;
+      const hasSelectedDateNotes = filteredNotes.some((note) => note.entryDate === selectedDate);
+      if (!hasSelectedDateNotes) {
+        state.coachDiarySelectedDate = getLatestCoachDiaryDate(filteredNotes);
+      }
+      if (state.coachDiarySelectedDate) {
+        state.coachDiaryCalendarMonth = state.coachDiarySelectedDate.slice(0, 7) || state.coachDiaryCalendarMonth;
+      }
       state.coachDiaryModalNoteId = null;
       renderCoachDiary({ reload: false });
     };
@@ -3404,23 +3409,37 @@
     }
 
     root.querySelectorAll('[data-coach-diary-reply-form]').forEach((replyForm) => {
+      const noteId = Number(replyForm.dataset.coachDiaryReplyForm || 0);
+      const messageField = replyForm.querySelector('[name="message"]');
+      const stampField = replyForm.querySelector('[name="stamp"]');
+      if (noteId && messageField) {
+        messageField.addEventListener('input', () => {
+          state.coachDiaryReplyDrafts[noteId] = messageField.value || '';
+        });
+      }
+      if (noteId && stampField) {
+        stampField.addEventListener('change', () => {
+          state.coachDiarySelectedStamps[noteId] = stampField.value || '';
+        });
+      }
+
       replyForm.addEventListener('submit', async (event) => {
         event.preventDefault();
         const messageBox = replyForm.querySelector('[data-coach-diary-reply-message]');
-        const noteId = Number(replyForm.querySelector('[data-note-id]')?.dataset.noteId || 0);
-        if (!messageBox || !noteId) return;
+        const submitNoteId = Number(replyForm.querySelector('[data-note-id]')?.dataset.noteId || 0);
+        if (!messageBox || !submitNoteId) return;
         messageBox.className = 'small';
         messageBox.textContent = '返信を送信しています...';
         try {
-          const payload = await api(`/api/coach/diary-notes/${noteId}/replies`, {
+          const payload = await api(`/api/coach/diary-notes/${submitNoteId}/replies`, {
             method: 'POST',
             body: JSON.stringify({
               message: replyForm.message.value,
               stamp: replyForm.stamp.value,
             }),
           });
-          state.coachDiaryReplyDraft = '';
-          state.coachDiarySelectedStamp = '';
+          delete state.coachDiaryReplyDrafts[submitNoteId];
+          delete state.coachDiarySelectedStamps[submitNoteId];
           state.coachDiaryStampOptions = payload.stampOptions || state.coachDiaryStampOptions;
           state.coachDiaryNotes = state.coachDiaryNotes.map((note) => (Number(note.id) === Number(payload.note.id) ? payload.note : note));
           messageBox.className = 'small success-text';
@@ -3432,6 +3451,10 @@
         }
       });
     });
+
+    if (state.coachDiaryModalNoteId) {
+      root.querySelector('.coach-diary-modal')?.focus();
+    }
   }
 
   function buildConditionCalendar(records) {
