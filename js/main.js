@@ -40,6 +40,8 @@
     coachDiarySelectedStamps: {},
     coachDiaryModalNoteId: null,
     coachDiaryEscListenerBound: false,
+    coachDiarySearchComposing: false,
+    coachDiaryFilterTimer: null,
     managerDailyLogs: [],
     managerDailyLogMissingPlayers: [],
     managerDailyLogSummary: null,
@@ -1998,8 +2000,22 @@
       return;
     }
     const payload = await api('/api/coach/diary-notes');
-    state.coachDiaryNotes = (payload.notes || []).map((note) => ({ ...note, tags: normalizeDiaryTags(note.tags) }));
+    state.coachDiaryNotes = (payload.notes || []).map((note) => prepareCoachDiaryNote(note));
     state.coachDiaryStampOptions = payload.stampOptions || defaultCoachDiaryStampOptions;
+  }
+
+  function prepareCoachDiaryNote(note) {
+    const normalizedTags = normalizeDiaryTags(note.tags);
+    const normalizedTagsLower = normalizedTags
+      .map((tag) => String(tag || '').trim().toLowerCase())
+      .filter(Boolean);
+    const playerName = String(note.playerName || '').toLowerCase();
+    const body = String(note.body || '').toLowerCase();
+    note.tags = normalizedTags;
+    note._coachDiaryTagSet = new Set(normalizedTagsLower);
+    note._coachDiarySearchable = `${playerName} ${body} ${normalizedTagsLower.join(' ')}`;
+    note._coachDiaryGrade = getPlayerGrade(getCoachDiaryNotePlayerProfile(note));
+    return note;
   }
 
   function normalizeYearMonth(value) {
@@ -2955,26 +2971,21 @@
   function getFilteredCoachDiaryNotes() {
     const normalizedKeyword = String(state.coachDiarySearchQuery || '').trim().toLowerCase();
     const normalizedTagFilter = String(state.coachDiarySelectedTag || '').trim().toLowerCase();
-    return [...state.coachDiaryNotes].filter((note) => {
-      const noteGrade = getPlayerGrade(getCoachDiaryNotePlayerProfile(note));
-      if (state.coachDiarySelectedGrade && noteGrade !== state.coachDiarySelectedGrade) return false;
-      const tags = normalizeDiaryTags(note.tags);
-      if (normalizedTagFilter && !tags.some((tag) => String(tag || '').trim().toLowerCase() === normalizedTagFilter)) return false;
-      if (normalizedKeyword) {
-        const playerName = String(note.playerName || '').toLowerCase();
-        const body = String(note.body || '').toLowerCase();
-        const tagText = tags.join(' ').toLowerCase();
-        const searchable = `${playerName} ${body} ${tagText}`;
-        if (!searchable.includes(normalizedKeyword)) return false;
-      }
-      return true;
+    const filteredNotes = [];
+    state.coachDiaryNotes.forEach((rawNote) => {
+      const note = prepareCoachDiaryNote(rawNote);
+      if (state.coachDiarySelectedGrade && note._coachDiaryGrade !== state.coachDiarySelectedGrade) return;
+      if (normalizedTagFilter && !note._coachDiaryTagSet.has(normalizedTagFilter)) return;
+      if (normalizedKeyword && !note._coachDiarySearchable.includes(normalizedKeyword)) return;
+      filteredNotes.push(note);
     });
+    return filteredNotes;
   }
 
   function getCoachDiaryAvailableTags() {
     const tagSet = new Set();
     state.coachDiaryNotes.forEach((note) => {
-      normalizeDiaryTags(note.tags).forEach((tag) => {
+      prepareCoachDiaryNote(note).tags.forEach((tag) => {
         const normalized = String(tag || '').trim();
         if (normalized) tagSet.add(normalized);
       });
@@ -3320,9 +3331,12 @@
     `;
 
     const getLatestCoachDiaryDate = (filteredNotes) => {
-      const latestNote = [...filteredNotes]
-        .sort((left, right) => compareDiaryNotes(left, right, 'desc'))[0] || null;
-      return latestNote ? latestNote.entryDate : new Date().toISOString().slice(0, 10);
+      let latestDate = '';
+      filteredNotes.forEach((note) => {
+        const date = String(note.entryDate || '');
+        if (date && (!latestDate || date > latestDate)) latestDate = date;
+      });
+      return latestDate || new Date().toISOString().slice(0, 10);
     };
 
     const applyCoachDiaryFiltersAndRender = () => {
@@ -3339,19 +3353,47 @@
       renderCoachDiary({ reload: false });
     };
 
-    qs('coachDiaryKeyword')?.addEventListener('input', (event) => {
-      state.coachDiarySearchQuery = event.target.value || '';
+    const scheduleCoachDiaryFilterRender = () => {
+      if (state.coachDiaryFilterTimer) {
+        clearTimeout(state.coachDiaryFilterTimer);
+      }
+      state.coachDiaryFilterTimer = window.setTimeout(() => {
+        state.coachDiaryFilterTimer = null;
+        applyCoachDiaryFiltersAndRender();
+      }, 220);
+    };
+
+    const applyCoachDiaryFiltersImmediately = () => {
+      if (state.coachDiaryFilterTimer) {
+        clearTimeout(state.coachDiaryFilterTimer);
+        state.coachDiaryFilterTimer = null;
+      }
       applyCoachDiaryFiltersAndRender();
+    };
+
+    const keywordInput = qs('coachDiaryKeyword');
+    keywordInput?.addEventListener('compositionstart', () => {
+      state.coachDiarySearchComposing = true;
+    });
+    keywordInput?.addEventListener('compositionend', (event) => {
+      state.coachDiarySearchComposing = false;
+      state.coachDiarySearchQuery = event.target.value || '';
+      scheduleCoachDiaryFilterRender();
+    });
+    keywordInput?.addEventListener('input', (event) => {
+      state.coachDiarySearchQuery = event.target.value || '';
+      if (state.coachDiarySearchComposing) return;
+      scheduleCoachDiaryFilterRender();
     });
 
     qs('coachDiaryGradeFilter')?.addEventListener('change', (event) => {
       state.coachDiarySelectedGrade = event.target.value || '';
-      applyCoachDiaryFiltersAndRender();
+      applyCoachDiaryFiltersImmediately();
     });
 
     qs('coachDiaryTagFilter')?.addEventListener('change', (event) => {
       state.coachDiarySelectedTag = event.target.value || '';
-      applyCoachDiaryFiltersAndRender();
+      applyCoachDiaryFiltersImmediately();
     });
 
     root.querySelectorAll('[data-coach-diary-calendar-nav]').forEach((button) => {
@@ -3441,7 +3483,8 @@
           delete state.coachDiaryReplyDrafts[submitNoteId];
           delete state.coachDiarySelectedStamps[submitNoteId];
           state.coachDiaryStampOptions = payload.stampOptions || state.coachDiaryStampOptions;
-          state.coachDiaryNotes = state.coachDiaryNotes.map((note) => (Number(note.id) === Number(payload.note.id) ? payload.note : note));
+          state.coachDiaryNotes = state.coachDiaryNotes
+            .map((note) => (Number(note.id) === Number(payload.note.id) ? prepareCoachDiaryNote(payload.note) : note));
           messageBox.className = 'small success-text';
           messageBox.textContent = payload.message;
           renderCoachDiary({ reload: false });
