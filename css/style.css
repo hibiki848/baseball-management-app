@@ -1124,12 +1124,30 @@ button,
 
 .coach-diary-day-card {
   display: grid;
-  gap: 14px;
+  gap: 8px;
+  align-content: start;
+  min-height: 174px;
 }
 
 .coach-diary-day-card h3 {
   margin: 0;
   font-size: 1rem;
+}
+
+.coach-diary-day-card-head {
+  align-items: start;
+}
+
+.coach-diary-card-excerpt {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: var(--text);
+  white-space: pre-wrap;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
 }
 
 .coach-diary-reply-form {
@@ -1185,6 +1203,30 @@ button,
 
 .coach-diary-feedback-grid {
   margin-top: 16px;
+}
+
+.coach-diary-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(9, 15, 27, 0.42);
+  display: grid;
+  place-items: center;
+  z-index: 1200;
+  padding: 18px 12px;
+}
+
+.coach-diary-modal {
+  width: min(760px, calc(100vw - 24px));
+  max-height: min(90vh, 760px);
+  overflow: auto;
+  display: grid;
+  gap: 14px;
+}
+
+.coach-diary-modal-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .diary-detail-comment + .diary-detail-comment {
@@ -1377,6 +1419,14 @@ button,
   .coach-diary-note-meta,
   .coach-diary-player-meta {
     justify-content: flex-start;
+  }
+
+  .coach-diary-day-card {
+    min-height: 168px;
+  }
+
+  .coach-diary-card-excerpt {
+    -webkit-line-clamp: 3;
   }
 
   .coach-condition-summary-grid {

@@ -38,6 +38,8 @@
     coachDiaryStampOptions: ['いいね', 'ナイス', 'おつかれ', 'ファイト', 'すごい'],
     coachDiaryReplyDraft: '',
     coachDiarySelectedStamp: '',
+    coachDiaryModalNoteId: null,
+    coachDiaryEscListenerBound: false,
     managerDailyLogs: [],
     managerDailyLogMissingPlayers: [],
     managerDailyLogSummary: null,
@@ -3170,6 +3172,44 @@
     `;
   }
 
+  function getCoachDiarySelectedModalNote(notes) {
+    const modalNoteId = Number(state.coachDiaryModalNoteId || 0);
+    if (!modalNoteId) return null;
+    return notes.find((note) => Number(note.id) === modalNoteId) || null;
+  }
+
+  function buildCoachDiaryDetailModal(note) {
+    if (!note) return '';
+    const playerProfile = getCoachDiaryNotePlayerProfile(note);
+    const updatedLabel = formatDateTimeLabel(note.updatedAt || note.createdAt || '');
+    return `
+      <div class="coach-diary-modal-overlay" data-coach-diary-modal-close role="presentation">
+        <section class="card coach-diary-modal" role="dialog" aria-modal="true" aria-labelledby="coachDiaryModalTitle" tabindex="-1">
+          <div class="coach-diary-detail-head">
+            <div>
+              <h2 id="coachDiaryModalTitle">${escapeHtml(note.playerName || `選手#${note.playerId}`)} の日誌詳細</h2>
+              <div class="small">${escapeHtml(`${buildPlayerMetaLine(playerProfile)} / ${formatDiaryDateLabel(note.entryDate)}`)}</div>
+            </div>
+            <button type="button" class="button-secondary" data-coach-diary-modal-close aria-label="日誌詳細を閉じる">閉じる</button>
+          </div>
+          <div class="coach-diary-modal-meta">
+            <span class="condition-status-badge">更新: ${escapeHtml(updatedLabel)}</span>
+            <span class="condition-status-badge">タグ ${(note.tags || []).length}件</span>
+            <span class="condition-status-badge">コメント ${(note.coachComments || []).length}件</span>
+            <span class="condition-status-badge">スタンプ ${(note.coachStamps || []).length}件</span>
+          </div>
+          <div class="tag-list coach-diary-tag-list">
+            ${(note.tags || []).length ? note.tags.map((tag) => `<span class="tag-chip">#${escapeHtml(tag)}</span>`).join('') : '<span class="small">タグなし</span>'}
+          </div>
+          <div class="stat-label">日誌本文</div>
+          <p class="coach-diary-detail-body">${escapeHtml(note.body || '')}</p>
+          ${buildCoachDiaryFeedbackList(note)}
+          ${buildCoachDiaryReplyForm(note)}
+        </section>
+      </div>
+    `;
+  }
+
   function buildCoachDiaryDayDetails(notes) {
     syncCoachDiaryDateSelection(notes);
     const selectedDate = state.coachDiarySelectedDate || new Date().toISOString().slice(0, 10);
@@ -3193,52 +3233,41 @@
       `;
     }
 
+    const selectedModalNote = getCoachDiarySelectedModalNote(selectedDateNotes);
     return `
       <section class="card coach-diary-detail-card">
         <div class="coach-diary-detail-head">
           <div>
             <h2>${escapeHtml(selectedDateLabel)} の日誌詳細</h2>
-            <div class="small">該当日の絞り込み結果一覧</div>
+            <div class="small">カードをタップすると、その場で日誌全文を確認できます。</div>
           </div>
           <span class="condition-status-badge">${selectedDateNotes.length}件</span>
         </div>
-        <div class="coach-diary-day-card-list">
+        <div class="coach-diary-day-card-list coach-diary-player-grid">
           ${selectedDateNotes.map((note) => `
-            <article class="list-item coach-diary-day-card">
-              <div class="coach-diary-detail-head">
+            <button
+              type="button"
+              class="list-item coach-diary-day-card coach-diary-player-card ${selectedModalNote && Number(selectedModalNote.id) === Number(note.id) ? 'is-selected' : ''}"
+              data-coach-diary-note-card="${note.id}"
+            >
+              <div class="coach-diary-detail-head coach-diary-day-card-head">
                 <div>
                   <h3>${escapeHtml(note.playerName || `選手#${note.playerId}`)}</h3>
                   <div class="small">${escapeHtml(buildPlayerMetaLine(getCoachDiaryNotePlayerProfile(note)))}</div>
                 </div>
                 <div class="coach-diary-day-card-badges">
-                  <span class="condition-status-badge">コメント ${(note.coachComments || []).length}件</span>
-                  <span class="condition-status-badge">スタンプ ${(note.coachStamps || []).length}件</span>
+                  <span class="condition-status-badge">${(note.tags || []).length ? `#タグ ${(note.tags || []).length}` : 'タグなし'}</span>
                 </div>
               </div>
-              <div class="coach-diary-detail-summary-grid">
-                <div class="stat-card">
-                  <div class="stat-label">本文冒頭</div>
-                  <div class="stat-value coach-diary-detail-stat">${escapeHtml(formatDiaryExcerpt(note.body, 45))}</div>
-                </div>
-                <div class="stat-card">
-                  <div class="stat-label">タグ</div>
-                  <div class="stat-value coach-diary-detail-stat">${(note.tags || []).length ? `${note.tags.length}件` : 'なし'}</div>
-                </div>
-                <div class="stat-card">
-                  <div class="stat-label">最終更新</div>
-                  <div class="stat-value coach-diary-detail-stat">${escapeHtml(String(note.updatedAt || note.createdAt || '').replace('T', ' ').slice(0, 16) || '未設定')}</div>
-                </div>
+              <p class="coach-diary-card-excerpt">${escapeHtml(formatDiaryExcerpt(note.body, 160) || '本文未入力')}</p>
+              <div class="coach-diary-player-meta">
+                <span>${escapeHtml(formatDateTimeLabel(note.updatedAt || note.createdAt || ''))}</span>
+                <span>コメント ${(note.coachComments || []).length}件 / スタンプ ${(note.coachStamps || []).length}件</span>
               </div>
-              <div class="stat-label">日誌本文</div>
-              <p class="coach-diary-detail-body">${escapeHtml(note.body || '')}</p>
-              <div class="tag-list">
-                ${(note.tags || []).length ? note.tags.map((tag) => `<span class="tag-chip">#${escapeHtml(tag)}</span>`).join('') : '<span class="small">タグなし</span>'}
-              </div>
-              ${buildCoachDiaryFeedbackList(note)}
-              ${buildCoachDiaryReplyForm(note)}
-            </article>
+            </button>
           `).join('')}
         </div>
+        ${buildCoachDiaryDetailModal(selectedModalNote)}
       </section>
     `;
   }
@@ -3301,6 +3330,7 @@
 
     const applyCoachDiaryFiltersAndRender = () => {
       resetCoachDiaryDateToLatest();
+      state.coachDiaryModalNoteId = null;
       renderCoachDiary({ reload: false });
     };
 
@@ -3330,6 +3360,7 @@
         state.coachDiarySelectedDate = monthNotes[0]
           ? monthNotes[0].entryDate
           : `${state.coachDiaryCalendarMonth}-01`;
+        state.coachDiaryModalNoteId = null;
         renderCoachDiary({ reload: false });
       });
     });
@@ -3338,9 +3369,39 @@
       button.addEventListener('click', () => {
         state.coachDiarySelectedDate = button.dataset.coachDiaryDate || '';
         state.coachDiaryCalendarMonth = state.coachDiarySelectedDate.slice(0, 7) || state.coachDiaryCalendarMonth;
+        state.coachDiaryModalNoteId = null;
         renderCoachDiary({ reload: false });
       });
     });
+
+    root.querySelectorAll('[data-coach-diary-note-card]').forEach((button) => {
+      button.addEventListener('click', () => {
+        state.coachDiaryModalNoteId = Number(button.dataset.coachDiaryNoteCard || 0) || null;
+        renderCoachDiary({ reload: false });
+      });
+    });
+
+    const closeCoachDiaryModal = () => {
+      if (!state.coachDiaryModalNoteId) return;
+      state.coachDiaryModalNoteId = null;
+      renderCoachDiary({ reload: false });
+    };
+
+    root.querySelectorAll('[data-coach-diary-modal-close]').forEach((element) => {
+      element.addEventListener('click', (event) => {
+        if (event.target !== event.currentTarget && !event.target.closest('button')) return;
+        closeCoachDiaryModal();
+      });
+    });
+
+    if (!state.coachDiaryEscListenerBound) {
+      window.addEventListener('keydown', (event) => {
+        if (event.key !== 'Escape' || !state.coachDiaryModalNoteId) return;
+        state.coachDiaryModalNoteId = null;
+        renderCoachDiary({ reload: false });
+      });
+      state.coachDiaryEscListenerBound = true;
+    }
 
     root.querySelectorAll('[data-coach-diary-reply-form]').forEach((replyForm) => {
       replyForm.addEventListener('submit', async (event) => {
