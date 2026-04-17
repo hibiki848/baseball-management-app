@@ -623,11 +623,22 @@
     return AppRoles.getRoleLabel(role);
   }
 
+  function appendQueryParamToHref(href, key, value) {
+    if (!href || value == null || value === '') return href;
+    const [baseWithQuery, hash = ''] = String(href).split('#');
+    const [path, queryString = ''] = baseWithQuery.split('?');
+    const params = new URLSearchParams(queryString);
+    params.set(key, value);
+    const nextQuery = params.toString();
+    const hashPart = hash ? `#${hash}` : '';
+    return `${path}${nextQuery ? `?${nextQuery}` : ''}${hashPart}`;
+  }
+
   async function setupNav() {
     const user = state.user || (await fetchCurrentUser());
     const nav = document.querySelector('.bottom-nav');
     if (!nav || !user) return;
-    const current = document.body.dataset.page;
+    const current = document.body.dataset.navPage || document.body.dataset.page;
     const rolePage = document.body.dataset.rolePage;
     const isPlayerPage = rolePage === 'player' || ['player', 'diary'].includes(current);
     const roleInputConfig = {
@@ -1224,12 +1235,13 @@
     ];
     const activeKey = big3 && big3.rankings && big3.rankings[state.activeBig3Tab] ? state.activeBig3Tab : 'benchPress';
     const activeRanking = (big3 && big3.rankings && big3.rankings[activeKey]) || { label: 'ベンチプレス', entries: [] };
-    const visibleEntries = activeRanking.entries.slice(0, hasLimit ? limit : (Number(big3 && big3.leaderboardLimit) || 5));
+    const visibleEntries = hasLimit ? activeRanking.entries.slice(0, limit) : activeRanking.entries;
     const hasOverflow = Boolean(hasLimit && tabs.some((tab) => {
       const entries = (big3 && big3.rankings && big3.rankings[tab.key] && big3.rankings[tab.key].entries) || [];
       return entries.length > limit;
     }));
     const shouldShowDetailLink = showDetailLink && (detailLinkMode !== 'overflow' || hasOverflow);
+    const detailLinkHref = appendQueryParamToHref(detailHref, 'big3Tab', activeKey);
 
     return `
       <section class="card${cardClass}">
@@ -1256,7 +1268,7 @@
             </article>
           `).join('')}
         </div>
-        ${shouldShowDetailLink ? `<div class="actions single-action"><a class="button button-secondary" href="${detailHref}">${escapeHtml(detailLabel)}</a></div>` : ''}
+        ${shouldShowDetailLink ? `<div class="actions single-action"><a class="button button-secondary" href="${detailLinkHref}">${escapeHtml(detailLabel)}</a></div>` : ''}
       </section>
     `;
   }
@@ -1268,6 +1280,21 @@
         <p class="small">${escapeHtml(description)}</p>
         <div class="actions single-action">
           <a class="button button-secondary" href="${href}">${escapeHtml(buttonLabel)}</a>
+        </div>
+      </section>
+    `;
+  }
+
+  function buildPlayerHomeDetailMenu() {
+    return `
+      <section class="card">
+        <h2>詳細メニュー</h2>
+        <p class="small">見たい項目を選ぶと、該当セクションへ移動します。</p>
+        <div class="ranking-list">
+          <a class="list-item detail-menu-link" href="#player-ranking"><strong>個人成績ランキング</strong><div class="meta">全件表示</div></a>
+          <a class="list-item detail-menu-link" href="#big3-ranking"><strong>筋トレBIG3ランキング</strong><div class="meta">タブ切り替え可・全件表示</div></a>
+          <a class="list-item detail-menu-link" href="#personal-summary"><strong>個人成績サマリー</strong><div class="meta">自分の集計データ</div></a>
+          <a class="list-item detail-menu-link" href="#team-summary"><strong>チーム成績サマリー</strong><div class="meta">チーム全体の推移確認</div></a>
         </div>
       </section>
     `;
@@ -2137,10 +2164,10 @@
         buildCoachHomeEntryCard('チーム全体の成績確認', '選手別の詳細データは専用ページで確認できます。', 'coach-stats.html#team-overview', '詳細を見る'),
         buildCoachHomeEntryCard('個人成績サマリー', 'ホームでは個人成績の数値を表示しません。詳細ページから選手ごとの成績を確認してください。', 'coach-stats.html#personal-summary', '詳細を見る'),
       );
-    } else if (user.role !== 'manager') {
+    } else if (user.role !== 'manager' && user.role !== 'player') {
       sections.push(buildPersonalSummaryCard(personalSummary, user));
     }
-    if (user.role !== 'coach') {
+    if (user.role !== 'coach' && user.role !== 'player') {
       sections.push(buildTeamSummaryCard(teamSummary));
     }
     if (user.role === 'manager') {
@@ -2153,6 +2180,18 @@
       );
     } else if (user.role === 'player') {
       sections.push(
+        buildCoachHomeEntryCard(
+          '個人成績サマリー',
+          'ホームでは表示を簡略化しています。詳細ページで期間別の成績を確認できます。',
+          'player-home-detail.html#personal-summary',
+          '詳細を見る',
+        ),
+        buildCoachHomeEntryCard(
+          'チーム成績サマリー',
+          'ホームでは表示を簡略化しています。詳細ページでチーム全体の指標を確認できます。',
+          'player-home-detail.html#team-summary',
+          '詳細を見る',
+        ),
         buildRankingCard(rankings, {
           limit: 3,
           showDetailLink: true,
@@ -4665,18 +4704,26 @@
     }
 
     await refreshData();
-    const { rankings, big3 } = state.dashboard;
+    const urlParams = new URLSearchParams(window.location.search);
+    const requestedBig3Tab = urlParams.get('big3Tab');
+    if (requestedBig3Tab && ['benchPress', 'squat', 'deadlift', 'total'].includes(requestedBig3Tab)) {
+      state.activeBig3Tab = requestedBig3Tab;
+    }
+    const { rankings, big3, personalSummary, teamSummary } = state.dashboard;
     root.innerHTML = `
       <section class="card role-hero">
         <div class="hero-kicker">選手向け</div>
         <h2>ホーム詳細</h2>
-        <p class="small">ホームで省略している順位・記録を確認できます。</p>
+        <p class="small">ホームで省略している項目を一覧で確認できます。</p>
         <div class="actions single-action">
           <a class="button button-secondary" href="index.html">ホームへ戻る</a>
         </div>
       </section>
-      <div id="player-ranking">${buildRankingCard(rankings, { highlightUserId: user.id })}</div>
-      <div id="big3-ranking">${buildBig3RankingCard(big3, { highlightUserId: user.id })}</div>
+      ${buildPlayerHomeDetailMenu()}
+      <div id="player-ranking">${buildRankingCard(rankings, { highlightUserId: user.id, cardClass: 'player-home-ranking-card' })}</div>
+      <div id="big3-ranking">${buildBig3RankingCard(big3, { highlightUserId: user.id, cardClass: 'player-home-ranking-card' })}</div>
+      <div id="personal-summary">${buildPersonalSummaryCard(personalSummary, user)}</div>
+      <div id="team-summary">${buildTeamSummaryCard(teamSummary)}</div>
     `;
     bindBig3Tabs();
   }
