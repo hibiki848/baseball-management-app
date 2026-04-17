@@ -1212,6 +1212,10 @@
     const hasLimit = Number.isFinite(limit) && limit > 0;
     const showDetailLink = Boolean(options.showDetailLink);
     const detailHref = options.detailHref || 'coach-stats.html#big3-ranking';
+    const detailLabel = options.detailLabel || 'もっと表示する';
+    const detailLinkMode = options.detailLinkMode || 'always';
+    const highlightUserId = Number(options.highlightUserId);
+    const cardClass = options.cardClass ? ` ${options.cardClass}` : '';
     const tabs = [
       { key: 'benchPress', label: 'ベンチ' },
       { key: 'squat', label: 'スクワット' },
@@ -1221,9 +1225,14 @@
     const activeKey = big3 && big3.rankings && big3.rankings[state.activeBig3Tab] ? state.activeBig3Tab : 'benchPress';
     const activeRanking = (big3 && big3.rankings && big3.rankings[activeKey]) || { label: 'ベンチプレス', entries: [] };
     const visibleEntries = activeRanking.entries.slice(0, hasLimit ? limit : (Number(big3 && big3.leaderboardLimit) || 5));
+    const hasOverflow = Boolean(hasLimit && tabs.some((tab) => {
+      const entries = (big3 && big3.rankings && big3.rankings[tab.key] && big3.rankings[tab.key].entries) || [];
+      return entries.length > limit;
+    }));
+    const shouldShowDetailLink = showDetailLink && (detailLinkMode !== 'overflow' || hasOverflow);
 
     return `
-      <section class="card">
+      <section class="card${cardClass}">
         <h2>筋トレBIG3ランキング</h2>
         <p class="small">全ロール共通で閲覧できます。各種目は重量の高い順で表示され、同重量は同順位です。</p>
         <div class="tab-row" role="tablist" aria-label="BIG3ランキング切り替え">
@@ -1234,11 +1243,12 @@
         <div class="ranking-list">
           <div class="small ranking-caption">${escapeHtml(activeRanking.label)} 上位${visibleEntries.length || 0}名</div>
           ${visibleEntries.length === 0 ? '<div class="small">ランキング対象データがまだありません。</div>' : visibleEntries.map((entry) => `
-            <article class="big3-rank-item ${entry.isLeader ? 'is-leader' : ''}">
+            <article class="big3-rank-item ${entry.isLeader ? 'is-leader' : ''} ${Number(entry.userId) === highlightUserId ? 'is-self-highlight' : ''}">
               <div class="big3-rank-main">
                 <div class="big3-rank-place">${entry.isLeader ? '👑 ' : ''}${entry.rank}位</div>
                 <div>
                   <strong>${escapeHtml(entry.userName)}</strong>
+                  ${Number(entry.userId) === highlightUserId ? '<div class="meta self-badge">あなた</div>' : ''}
                   <div class="meta">更新日: ${escapeHtml(String(entry.updatedAt || '').slice(0, 10) || '未設定')}</div>
                 </div>
               </div>
@@ -1246,7 +1256,7 @@
             </article>
           `).join('')}
         </div>
-        ${showDetailLink ? `<div class="actions single-action"><a class="button button-secondary" href="${detailHref}">詳細を見る</a></div>` : ''}
+        ${shouldShowDetailLink ? `<div class="actions single-action"><a class="button button-secondary" href="${detailHref}">${escapeHtml(detailLabel)}</a></div>` : ''}
       </section>
     `;
   }
@@ -1544,17 +1554,24 @@
     const hasLimit = Number.isFinite(limit) && limit > 0;
     const showDetailLink = Boolean(options.showDetailLink);
     const detailHref = options.detailHref || 'coach-stats.html#player-ranking';
+    const detailLabel = options.detailLabel || 'もっと表示する';
+    const detailLinkMode = options.detailLinkMode || 'always';
+    const highlightUserId = Number(options.highlightUserId);
+    const cardClass = options.cardClass ? ` ${options.cardClass}` : '';
     const visibleRankings = hasLimit ? rankings.slice(0, limit) : rankings;
+    const hasOverflow = rankings.length > visibleRankings.length;
+    const shouldShowDetailLink = showDetailLink && (detailLinkMode !== 'overflow' || hasOverflow);
     return `
-      <section class="card">
+      <section class="card${cardClass}">
         <h2>個人成績ランキング</h2>
         ${visibleRankings.length === 0 ? '<div class="small">ランキング対象データがありません。</div>' : visibleRankings.map((player, index) => `
-          <div class="list-item">
+          <div class="list-item ${Number(player.id) === highlightUserId ? 'is-self-highlight' : ''}">
             <strong>${index + 1}位 ${escapeHtml(player.name)}</strong>
+            ${Number(player.id) === highlightUserId ? '<span class="meta self-badge">あなた</span>' : ''}
             <div class="meta">OPS ${fmt3(player.ops)} / 打率 ${fmt3(player.battingAverage)} / 打点 ${player.runsBattedIn} / 奪三振 ${player.strikeouts} / 防御率 ${fmt3(player.era)}</div>
           </div>
         `).join('')}
-        ${showDetailLink ? `<div class="actions single-action"><a class="button button-secondary" href="${detailHref}">もっと見る</a></div>` : ''}
+        ${shouldShowDetailLink ? `<div class="actions single-action"><a class="button button-secondary" href="${detailHref}">${escapeHtml(detailLabel)}</a></div>` : ''}
       </section>
     `;
   }
@@ -2133,6 +2150,25 @@
       sections.push(
         buildRankingCard(rankings, { limit: 3, showDetailLink: true, detailHref: 'coach-stats.html#player-ranking' }),
         buildBig3RankingCard(big3, { limit: 3, showDetailLink: true, detailHref: 'coach-stats.html#big3-ranking' }),
+      );
+    } else if (user.role === 'player') {
+      sections.push(
+        buildRankingCard(rankings, {
+          limit: 3,
+          showDetailLink: true,
+          detailLinkMode: 'overflow',
+          detailHref: 'player-home-detail.html#player-ranking',
+          detailLabel: 'もっと表示する',
+          cardClass: 'player-home-ranking-card',
+        }),
+        buildBig3RankingCard(big3, {
+          limit: 3,
+          showDetailLink: true,
+          detailLinkMode: 'overflow',
+          detailHref: 'player-home-detail.html#big3-ranking',
+          detailLabel: 'もっと表示する',
+          cardClass: 'player-home-ranking-card',
+        }),
       );
     } else {
       sections.push(buildRankingCard(rankings), buildBig3RankingCard(big3));
@@ -4613,6 +4649,38 @@
     bindBig3Tabs();
   }
 
+  async function renderPlayerHomeDetail() {
+    const root = qs('playerHomeDetailRoot');
+    if (!root) return;
+    const user = state.user || (await fetchCurrentUser());
+    if (!user) return;
+    if (user.role !== 'player') {
+      root.innerHTML = `
+        <section class="card">
+          <h2>選手専用ページです</h2>
+          <p class="small">このページは選手ロールのホーム詳細確認用です。</p>
+        </section>
+      `;
+      return;
+    }
+
+    await refreshData();
+    const { rankings, big3 } = state.dashboard;
+    root.innerHTML = `
+      <section class="card role-hero">
+        <div class="hero-kicker">選手向け</div>
+        <h2>ホーム詳細</h2>
+        <p class="small">ホームで省略している順位・記録を確認できます。</p>
+        <div class="actions single-action">
+          <a class="button button-secondary" href="index.html">ホームへ戻る</a>
+        </div>
+      </section>
+      <div id="player-ranking">${buildRankingCard(rankings, { highlightUserId: user.id })}</div>
+      <div id="big3-ranking">${buildBig3RankingCard(big3, { highlightUserId: user.id })}</div>
+    `;
+    bindBig3Tabs();
+  }
+
   function bindLogin() {
     const loginForm = qs('loginForm');
     const registerForm = qs('registerForm');
@@ -4750,6 +4818,7 @@
     await renderCoachCondition();
     await renderPlayerDetail();
     await renderCoachStatsDetail();
+    await renderPlayerHomeDetail();
     await renderMeetingHistory();
     await renderPrepare();
     await renderConditionPage();

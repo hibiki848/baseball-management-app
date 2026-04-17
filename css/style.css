@@ -408,6 +408,37 @@ button,
   box-shadow: 0 10px 24px rgba(243, 201, 105, 0.18);
 }
 
+.list-item.is-self-highlight,
+.big3-rank-item.is-self-highlight {
+  border-color: rgba(22, 75, 134, 0.45);
+  background: linear-gradient(135deg, rgba(22, 75, 134, 0.08), #fff);
+}
+
+.self-badge {
+  display: inline-flex;
+  margin-top: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--primary-light);
+  color: var(--primary);
+  font-weight: 700;
+  font-size: 0.72rem;
+}
+
+.player-home-ranking-card .list-item {
+  padding: 8px 10px;
+}
+
+.player-home-ranking-card .big3-rank-item {
+  padding: 10px;
+  border-radius: 12px;
+}
+
+.player-home-ranking-card .meta,
+.player-home-ranking-card .small {
+  font-size: 0.8rem;
+}
+
 
 .goal-card-footer {
   display: grid;
